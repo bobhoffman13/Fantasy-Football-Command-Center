@@ -1,0 +1,12 @@
+{
+  "name": "ffcc-alerts",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Companion push-notification poller for Fantasy Football Command Center",
+  "bin": { "ffcc-alerts": "./ffcc-alerts.mjs" },
+  "scripts": {
+    "start": "node ffcc-alerts.mjs"
+  },
+  "engines": { "node": ">=18" }
+}

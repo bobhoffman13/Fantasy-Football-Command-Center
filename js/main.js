@@ -6,6 +6,7 @@ import { loadPersisted, getState, setSession, subscribe } from './store.js';
 import { getNflState, getLeagues, getPlayers } from './api/sleeper.js';
 import { ensureActivityPolling } from './activity.js';
 import { seasonTypeLabel } from './lib/format.js';
+import { openSleeper } from './views/components.js';
 
 import * as home from './views/home.js';
 import * as leagues from './views/leagues.js';
@@ -61,9 +62,11 @@ function buildShell() {
   const app = document.getElementById('app');
   bannerEl = div({ class: 'offline-banner', style: { display: 'none' } });
   headerStatusEl = div({ class: 'header-status' });
+  const sleeperBtn = btn({ class: 'btn btn-sm header-sleeper', onclick: () => openSleeper('https://sleeper.com') },
+    'Sleeper', span({ class: 'ext-arrow' }, '↗'));
   const header = el('header', { class: 'app-header' },
     div({ class: 'app-title' }, '🏈 Command Center'),
-    headerStatusEl,
+    div({ class: 'header-right' }, headerStatusEl, sleeperBtn),
   );
   contentEl = el('main', { class: 'app-content' });
   navEl = el('nav', { class: 'app-nav' });

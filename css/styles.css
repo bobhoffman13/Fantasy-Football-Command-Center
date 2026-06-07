@@ -42,6 +42,8 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .app-title { font-weight: 700; font-size: 16px; letter-spacing: .2px; }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.header-sleeper { min-height: 32px; padding: 6px 11px; font-size: 12px; background: var(--surface-2); }
 .header-status { font-size: 12px; color: var(--muted); }
 .hs-season { background: var(--surface-2); padding: 4px 10px; border-radius: 20px; }
 

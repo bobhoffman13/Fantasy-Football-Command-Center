@@ -135,4 +135,12 @@ window.addEventListener('error', (e) => {
   if (contentEl && !contentEl.hasChildNodes()) mount(contentEl, recoveryScreen(e.error || e.message));
 });
 
+// Register the service worker (network-first; prevents post-deploy cache skew,
+// enables offline launch). Harmless if unsupported.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+
 boot();

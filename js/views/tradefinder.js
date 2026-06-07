@@ -20,8 +20,12 @@ import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, emptyBlock, se
 // Beyond this, acquiring it would require a significant overpay — the unrealistic
 // trades we deliberately hide.
 const FAIR_MAX_GAIN = 0.5; // +50%
+// When packaging several players for one, you'll often pay a "consolidation tax" —
+// giving up more total value to land a single stud. Allow targets down to this much
+// below the package total so those realistic deals still show.
+const PACKAGE_DISCOUNT = 0.25; // -25%
 
-const local = { leagueId: null, selectedId: null, pos: 'ALL', buyLowOnly: false };
+const local = { leagueId: null, selectedIds: [], pos: 'ALL', buyLowOnly: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE'];
 
 export function render(container) {
@@ -29,10 +33,10 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('tradefinder', (id) => { local.leagueId = id; local.selectedId = null; trigger(); });
+  const sel = leagueSelector('tradefinder', (id) => { local.leagueId = id; local.selectedIds = []; trigger(); });
   if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) {
     local.leagueId = sel.selectedId;
-    local.selectedId = null;
+    local.selectedIds = [];
   }
 
   root.append(sel.node, body);
@@ -102,14 +106,24 @@ async function load(leagueId) {
   out.appendChild(teamSummary(myValued));
   out.appendChild(sellHighBoard(myValued, arbThreshold));
 
-  // --- Trade-away picker + results ---
-  if (!local.selectedId || !myValued.some((p) => p.playerId === local.selectedId)) {
-    local.selectedId = myValued[0].playerId;
-  }
+  // --- Trade-away picker (multi-select) + results ---
+  local.selectedIds = local.selectedIds.filter((id) => myValued.some((p) => p.playerId === id));
+  if (!local.selectedIds.length) local.selectedIds = [myValued[0].playerId];
 
-  const picker = el('select', { class: 'select', onchange: (e) => { local.selectedId = e.target.value; paint(); } },
-    ...myValued.map((p) => el('option', { value: p.playerId, selected: p.playerId === local.selectedId },
-      `${p.name} — LV ${fmtVal(p.lifetimeValue)}`)));
+  const checklist = div({ class: 'tf-checklist' }, ...myValued.map((p) =>
+    el('label', { class: 'tf-check-row' },
+      el('input', {
+        type: 'checkbox',
+        checked: local.selectedIds.includes(p.playerId),
+        onchange: (e) => {
+          if (e.target.checked) { if (!local.selectedIds.includes(p.playerId)) local.selectedIds.push(p.playerId); }
+          else local.selectedIds = local.selectedIds.filter((id) => id !== p.playerId);
+          paint();
+        },
+      }),
+      span({ class: 'tf-check-name' }, p.name),
+      span({ class: 'tf-check-lv muted small' }, `LV ${fmtVal(p.lifetimeValue)}`),
+    )));
 
   const posSel = el('select', { class: 'select', onchange: (e) => { local.pos = e.target.value; paint(); } },
     ...POSITIONS.map((p) => el('option', { value: p, selected: p === local.pos }, p)));
@@ -121,15 +135,15 @@ async function load(leagueId) {
   const resultsHost = div({ class: 'tf-results' });
 
   out.appendChild(div({ class: 'card' },
-    sectionTitle('Find an upgrade', 'Players on other teams worth more than the one you give up'),
-    div({ class: 'field' }, span({ class: 'field-label' }, 'Trade away'), picker),
+    sectionTitle('Find an upgrade', 'Check one or more players to package together'),
+    div({ class: 'field' }, span({ class: 'field-label' }, 'Trade away'), checklist),
     div({ class: 'tf-controls-row' }, posSel, consensus ? buyLowToggle : null),
     resultsHost,
   ));
 
   function paint() {
-    const me = myValued.find((p) => p.playerId === local.selectedId);
-    mount(resultsHost, selectedSummary(me), upgradeList(me, targets, arbThreshold));
+    const pkg = myValued.filter((p) => local.selectedIds.includes(p.playerId));
+    mount(resultsHost, packageSummary(pkg), upgradeList(pkg, targets, arbThreshold));
   }
   paint();
 
@@ -210,24 +224,34 @@ function sellHighBoard(myValued, threshold) {
   );
 }
 
-function selectedSummary(me) {
-  if (!me) return div({});
-  const bits = [`Your LV ${fmtVal(me.lifetimeValue)}`];
-  if (me.lifetimeValueChange != null) bits.push(`trend ${trendStr(me.lifetimeValueChange)}`);
-  if (me.consensus && me.consensus.overallRank) bits.push(`public #${me.consensus.overallRank}`);
-  return div({ class: 'tf-selected muted small' },
-    `Giving up ${me.name} (${[me.team, me.positions.join('/')].filter(Boolean).join(' · ')}) · ${bits.join(' · ')}`);
+function packageSummary(pkg) {
+  if (!pkg.length) return div({ class: 'tf-selected muted small' }, 'Check at least one player above to trade away.');
+  const total = pkg.reduce((s, p) => s + p.lifetimeValue, 0);
+  const trend = pkg.reduce((s, p) => s + (p.lifetimeValueChange || 0), 0);
+  const names = pkg.map((p) => p.name).join(' + ');
+  const label = pkg.length === 1 ? 'Giving up' : `Packaging ${pkg.length} players`;
+  return div({ class: 'tf-selected' },
+    div({}, span({ class: 'tf-pkg-label' }, label), ' ', span({ class: 'muted small' }, names)),
+    div({ class: 'muted small' }, `Package LV ${fmtVal(total)} · trend ${trendStr(trend)}`),
+  );
 }
 
-function upgradeList(me, targets, threshold) {
-  if (!me) return div({});
-  const ceiling = me.lifetimeValue * (1 + FAIR_MAX_GAIN);
+function upgradeList(pkg, targets, threshold) {
+  if (!pkg.length) return div({});
+  const giveUp = pkg.reduce((s, p) => s + p.lifetimeValue, 0);
+  const bestSingle = Math.max(...pkg.map((p) => p.lifetimeValue));
+  const isPackage = pkg.length > 1;
+  const ceiling = giveUp * (1 + FAIR_MAX_GAIN);
+  // Single: any strict upgrade up to +50%. Package: must beat your best single piece
+  // (the point of consolidating) and sit within a consolidation-tax band around the total.
+  const floor = isPackage ? Math.max(bestSingle, giveUp * (1 - PACKAGE_DISCOUNT)) : giveUp;
 
   let rows = targets
-    .filter((t) => t.lifetimeValue > me.lifetimeValue && t.lifetimeValue <= ceiling)
+    .filter((t) => t.lifetimeValue > (isPackage ? bestSingle : floor)
+      && t.lifetimeValue >= floor && t.lifetimeValue <= ceiling)
     .filter((t) => local.pos === 'ALL' || t.positions.includes(local.pos))
     .map((t) => {
-      const gain = t.lifetimeValue - me.lifetimeValue;
+      const gain = t.lifetimeValue - giveUp;
       // arbDelta > 0 => you rank the target higher than the public does => the market
       // may underprice them => buy-low. < 0 => the market prizes them more than you do.
       const arbDelta = t.arbDelta;
@@ -242,7 +266,7 @@ function upgradeList(me, targets, threshold) {
 
   if (local.buyLowOnly) rows = rows.filter((r) => r.arb === 'buy');
 
-  // Buy-lows first, then by raw value gain.
+  // Buy-lows first, then by raw value gain (best studs / least consolidation tax first).
   rows.sort((a, b) => {
     const ar = a.arb === 'buy' ? 0 : 1, br = b.arb === 'buy' ? 0 : 1;
     if (ar !== br) return ar - br;
@@ -251,13 +275,16 @@ function upgradeList(me, targets, threshold) {
 
   if (!rows.length) {
     return emptyBlock(local.buyLowOnly
-      ? 'No buy-low upgrades in the fair range. Try turning off "Buy-low only".'
-      : 'No realistic upgrades found for this player in the fair value range.');
+      ? 'No buy-low targets in the fair range. Try turning off "Buy-low only".'
+      : isPackage
+        ? 'No single player in the fair range for this package. Try adding or removing a player.'
+        : 'No realistic upgrades found for this player in the fair value range.');
   }
 
   const capped = rows.slice(0, 40);
+  const noun = isPackage ? 'consolidation target' : 'fair upgrade';
   return div({},
-    div({ class: 'muted small tf-count' }, `${rows.length} fair upgrade${rows.length === 1 ? '' : 's'} (within +${Math.round(FAIR_MAX_GAIN * 100)}% value)`),
+    div({ class: 'muted small tf-count' }, `${rows.length} ${noun}${rows.length === 1 ? '' : 's'} — single players you could target`),
     div({ class: 'list' }, ...capped.map(targetRow)),
   );
 }
@@ -268,14 +295,19 @@ function targetRow({ t, gain, arbDelta, arb }) {
   else if (arb === 'premium') tags.push(span({ class: 'badge arb-premium', title: 'The public prizes this player more than your Lifetime Value does' }, `Premium ${arbDelta}`));
   else if (arb === 'fair') tags.push(span({ class: 'badge arb-fair' }, 'Fair market'));
 
+  // gain = target value minus what you give up. Negative on a consolidation (you pay a
+  // value tax to land one stud); show it honestly rather than as a false "+".
+  const positive = gain >= 0;
+  const gainStr = (positive ? '+' : '−') + fmtVal(Math.abs(gain));
+
   return div({ class: 'player-row' },
     div({ class: 'pr-main' },
       span({ class: 'pr-name' }, t.name),
       span({ class: 'pr-meta muted small' }, `${[t.team, t.positions.join('/')].filter(Boolean).join(' · ')} · ${t.owner}`),
     ),
     div({ class: 'tf-gain' },
-      span({ class: 'tf-gain-num' }, `+${fmtVal(gain)}`),
-      span({ class: 'tf-gain-label muted small' }, 'value'),
+      span({ class: 'tf-gain-num' + (positive ? '' : ' neg') }, gainStr),
+      span({ class: 'tf-gain-label muted small' }, positive ? 'net value' : 'consolidation'),
     ),
     div({ class: 'row-badges' }, ...tags, rankBadge(t.rank)),
   );

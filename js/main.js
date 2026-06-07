@@ -61,8 +61,8 @@ function buildShell() {
   const app = document.getElementById('app');
   bannerEl = div({ class: 'offline-banner', style: { display: 'none' } });
   headerStatusEl = div({ class: 'header-status' });
-  const sleeperBtn = btn({ class: 'btn btn-sm header-sleeper', title: 'Copy link — paste in Safari',
-    onclick: () => copyToClipboard('https://sleeper.com', 'Link copied — paste in Safari to open Sleeper') },
+  const sleeperBtn = btn({ class: 'btn btn-sm header-sleeper', title: 'Copy link — open in Safari desktop mode',
+    onclick: () => copyToClipboard('https://sleeper.com', 'Link copied — in Safari: paste, then aA → Request Desktop Website') },
     'Sleeper', span({ class: 'copy-glyph' }, '⧉'));
   const header = el('header', { class: 'app-header' },
     div({ class: 'app-title' }, '🏈 Command Center'),

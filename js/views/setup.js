@@ -78,16 +78,30 @@ function connectSection(settings, session, rerender) {
 }
 
 // --- Sleeper links tip ---
-// The Sleeper app has no league deep-link and an installed Home-Screen app can't
-// long-press to Safari, so tapping a Sleeper button copies the link instead —
-// paste it into Safari's address bar to land on the exact league/page.
+// iOS is hostile to Sleeper league links: tapping one opens the app (which has
+// no per-league deep-link) and pasting one into Safari makes sleeper.com bounce
+// the visitor to the App Store. The only path to the actual logged-in league
+// page on a phone is Safari's "Request Desktop Website" mode, so the buttons
+// copy the link and we document the desktop-mode flow (plus the one-time
+// per-site toggle that stops the App Store redirect for good).
 function sleeperLinksTip() {
-  return div({ class: 'card' }, sectionTitle('Sleeper links'),
+  const step = (...c) => el('li', null, ...c);
+  return div({ class: 'card' }, sectionTitle('Opening a league in Sleeper (iPhone)'),
     div({ class: 'muted small' },
-      'Tapping a “Sleeper ⧉” button ', span({ class: 'tip-strong' }, 'copies that league/page’s link.'),
-      ' Open Safari, tap the address bar, paste, and go — you’ll land on the exact page, logged in. ',
-      '(The Sleeper app can’t open a specific league, so we hand you the link for Safari instead.) ',
-      'On the Free Agents list, the per-player button copies the player’s name to paste into Sleeper search.'));
+      'Sleeper has no real mobile website — a tapped link opens the app (which can’t jump to a league) and a pasted link bounces you to the App Store. Safari’s desktop mode is the way through:'),
+    el('ol', { class: 'tip-steps muted small' },
+      step('Tap any ', span({ class: 'tip-strong' }, 'Sleeper ⧉'), ' button here — it copies that page’s link.'),
+      step('Open Safari, paste the link into the address bar, and go.'),
+      step('If it tries to send you to the App Store, return to Safari and tap ',
+        span({ class: 'tip-strong' }, 'aA'), ' (left of the address bar) → ',
+        span({ class: 'tip-strong' }, 'Request Desktop Website'), '.'),
+      step('The full Sleeper web app loads — logged in, on the exact page.')),
+    div({ class: 'muted small' },
+      span({ class: 'tip-strong' }, 'One-time fix: '),
+      'in that ', span({ class: 'tip-strong' }, 'aA'), ' menu choose ',
+      span({ class: 'tip-strong' }, 'Website Settings'), ' and turn on ',
+      span({ class: 'tip-strong' }, '“Request Desktop Website”'),
+      ' for sleeper.com — after that it loads the desktop site automatically and never bounces to the App Store again.'));
 }
 
 // --- League config: type, commish, profile assignment ---

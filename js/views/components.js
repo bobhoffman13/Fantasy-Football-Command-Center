@@ -89,10 +89,10 @@ export function sleeperHandoff(label, { leagueId, section = 'team', copyText, pr
   const cls = ['btn', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
   const onclick = copyText
     ? () => copyToClipboard(copyText, `Copied “${copyText}” — paste into Sleeper search in Safari`)
-    : () => copyToClipboard(sleeperUrl(leagueId, section), 'Link copied — paste in Safari to open this page');
+    : () => copyToClipboard(sleeperUrl(leagueId, section), 'Link copied — in Safari: paste, then aA → Request Desktop Website');
   return btn({
     class: cls,
-    title: copyText ? 'Copy name for Sleeper search' : 'Copy link — paste in Safari',
+    title: copyText ? 'Copy name for Sleeper search' : 'Copy link — open in Safari desktop mode',
     onclick,
   }, label, span({ class: 'copy-glyph' }, '⧉'));
 }

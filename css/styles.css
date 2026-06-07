@@ -332,9 +332,16 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .badge.arb-premium { background: rgba(255,93,93,.16); color: var(--bad); }
 .badge.arb-fair { background: rgba(141,151,184,.16); color: var(--muted); }
 
-/* Trade Finder — multi-select package picker */
-.tf-checklist { max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
-.tf-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; min-height: 40px; }
+/* Trade Finder — multi-select package picker (click-to-open dropdown) */
+.tf-multiselect { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+.tf-ms-summary { display: flex; align-items: center; gap: 8px; padding: 11px 12px; min-height: var(--tap); cursor: pointer; font-weight: 600; list-style: none; -webkit-tap-highlight-color: transparent; }
+.tf-ms-summary::-webkit-details-marker { display: none; }
+.tf-ms-summary::after { content: '▾'; color: var(--muted); margin-left: auto; font-size: 12px; }
+.tf-multiselect[open] .tf-ms-summary::after { content: '▴'; }
+.tf-multiselect[open] .tf-ms-summary { border-bottom: 1px solid var(--border); }
+.tf-ms-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-ms-panel { display: flex; flex-direction: column; }
+.tf-check-row { display: flex; align-items: center; gap: 10px; padding: 11px 12px; border-bottom: 1px solid var(--border); cursor: pointer; min-height: var(--tap); }
 .tf-check-row:last-child { border-bottom: none; }
 .tf-check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex-shrink: 0; }
 .tf-check-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

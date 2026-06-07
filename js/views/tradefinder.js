@@ -114,20 +114,35 @@ async function load(leagueId) {
   local.selectedIds = local.selectedIds.filter((id) => myValued.some((p) => p.playerId === id));
   if (!local.selectedIds.length) local.selectedIds = [myValued[0].playerId];
 
-  const checklist = div({ class: 'tf-checklist' }, ...myValued.map((p) =>
-    el('label', { class: 'tf-check-row' },
-      el('input', {
-        type: 'checkbox',
-        checked: local.selectedIds.includes(p.playerId),
-        onchange: (e) => {
-          if (e.target.checked) { if (!local.selectedIds.includes(p.playerId)) local.selectedIds.push(p.playerId); }
-          else local.selectedIds = local.selectedIds.filter((id) => id !== p.playerId);
-          paint();
-        },
-      }),
-      span({ class: 'tf-check-name' }, p.name),
-      span({ class: 'tf-check-lv muted small' }, `LV ${fmtVal(p.lifetimeValue)}`),
-    )));
+  // Click-to-open multi-select (native <details> so it's reliable on touch and the
+  // open list flows with the page rather than trapping scroll in a fixed box).
+  const summaryText = span({ class: 'tf-ms-text' });
+  const updateSummary = () => {
+    const pkg = myValued.filter((p) => local.selectedIds.includes(p.playerId));
+    const total = pkg.reduce((s, p) => s + p.lifetimeValue, 0);
+    summaryText.textContent = pkg.length
+      ? `${pkg.length} player${pkg.length > 1 ? 's' : ''} · LV ${fmtVal(total)}`
+      : 'Select players…';
+  };
+
+  const checklist = el('details', { class: 'tf-multiselect' },
+    el('summary', { class: 'tf-ms-summary' }, summaryText),
+    div({ class: 'tf-ms-panel' }, ...myValued.map((p) =>
+      el('label', { class: 'tf-check-row' },
+        el('input', {
+          type: 'checkbox',
+          checked: local.selectedIds.includes(p.playerId),
+          onchange: (e) => {
+            if (e.target.checked) { if (!local.selectedIds.includes(p.playerId)) local.selectedIds.push(p.playerId); }
+            else local.selectedIds = local.selectedIds.filter((id) => id !== p.playerId);
+            updateSummary();
+            paint();
+          },
+        }),
+        span({ class: 'tf-check-name' }, p.name),
+        span({ class: 'tf-check-lv muted small' }, `LV ${fmtVal(p.lifetimeValue)}`),
+      ))));
+  updateSummary();
 
   const posSel = el('select', { class: 'select', onchange: (e) => { local.pos = e.target.value; paint(); } },
     ...POSITIONS.map((p) => el('option', { value: p, selected: p === local.pos }, p)));

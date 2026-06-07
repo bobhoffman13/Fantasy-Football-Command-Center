@@ -3,9 +3,9 @@ import { div, span, mount } from '../lib/dom.js';
 import { loadLeagueContext } from '../lib/league.js';
 import { enrichRoster } from '../lib/players.js';
 import { optimizeLineup } from '../lib/lineup.js';
-import { getState } from '../store.js';
+import { getState, getActiveLeagueId } from '../store.js';
 import { RISK_MODES } from '../data/constants.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
+import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const local = { leagueId: null };
 
@@ -14,14 +14,11 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('lineup', (id) => { local.leagueId = id; trigger(); });
-  if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) local.leagueId = sel.selectedId;
+  local.leagueId = getActiveLeagueId();
 
-  root.append(sel.node, body);
+  root.append(body);
   mount(container, root);
-  trigger();
-
-  function trigger() { if (local.leagueId) run(() => load(local.leagueId)); }
+  if (local.leagueId) run(() => load(local.leagueId));
 }
 
 async function load(leagueId) {

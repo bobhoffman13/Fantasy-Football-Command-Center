@@ -12,9 +12,9 @@
 import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
-import { getState } from '../store.js';
+import { getState, getActiveLeagueId } from '../store.js';
 import { getConsensusValues, leagueToConsensusParams } from '../api/fantasycalc.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
+import { asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
 
 // Cap on how much more valuable a target may be than the player you'd give up.
 // Beyond this, acquiring it would require a significant overpay — the unrealistic
@@ -33,17 +33,12 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('tradefinder', (id) => { local.leagueId = id; local.selectedIds = []; trigger(); });
-  if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) {
-    local.leagueId = sel.selectedId;
-    local.selectedIds = [];
-  }
+  const activeId = getActiveLeagueId();
+  if (activeId !== local.leagueId) { local.leagueId = activeId; local.selectedIds = []; } // reset package on league change
 
-  root.append(sel.node, body);
+  root.append(body);
   mount(container, root);
-  trigger();
-
-  function trigger() { if (local.leagueId) run(() => load(local.leagueId)); }
+  if (local.leagueId) run(() => load(local.leagueId));
 }
 
 function fmtVal(v) {

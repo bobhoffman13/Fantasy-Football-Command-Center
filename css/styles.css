@@ -343,3 +343,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .tf-gain-num.neg { color: var(--warn); }
 
 .tf-back { margin-bottom: 10px; }
+
+/* Global league picker (top of the Leagues area) */
+.league-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.league-bar .field-label { margin-bottom: 0; flex-shrink: 0; }
+.league-bar .select { flex: 1; }

@@ -3,8 +3,8 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
-import { getState } from '../store.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
+import { getState, getActiveLeagueId } from '../store.js';
+import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const local = { leagueId: null, pos: 'ALL', q: '', onlyAlerts: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -15,14 +15,11 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('freeagents', (id) => { local.leagueId = id; trigger(); });
-  if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) local.leagueId = sel.selectedId;
+  local.leagueId = getActiveLeagueId();
 
-  root.append(sel.node, body);
+  root.append(body);
   mount(container, root);
-  trigger();
-
-  function trigger() { if (local.leagueId) run(() => load(local.leagueId)); }
+  if (local.leagueId) run(() => load(local.leagueId));
 }
 
 const CORE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);

@@ -25,6 +25,7 @@ function defaultSettings() {
     assignments: {},      // leagueId -> profileId
     thresholds: {},       // leagueId -> number (waiver alert rank)
     riskMode: 'warn',     // 'start' | 'warn' | 'sit'
+    globalLeagueId: '',   // the app-wide "active league" driving every league page
     lastLeagueByView: {}, // viewId -> leagueId
     notifCreds: { pushoverToken: '', pushoverUser: '' },
     duesByLeague: {},     // leagueId -> { amount, paid: { userId: bool } }
@@ -93,6 +94,23 @@ export function updateMap(mapName, key, value) {
   state.settings = { ...state.settings, [mapName]: next };
   persistSettings();
   emit('settings');
+}
+
+// --- global active league ---
+
+// The single league all league-scoped pages open for. Falls back to the first
+// available league if the stored id is missing or no longer valid.
+export function getActiveLeagueId() {
+  const leagues = state.session.leagues || [];
+  if (!leagues.length) return null;
+  const g = state.settings.globalLeagueId;
+  return leagues.some((l) => l.league_id === g) ? g : leagues[0].league_id;
+}
+
+export function setGlobalLeague(id) {
+  state.settings = { ...state.settings, globalLeagueId: id };
+  persistSettings();
+  emit('globalLeague'); // league pages re-render on this channel
 }
 
 // --- profiles (IndexedDB-backed) ---

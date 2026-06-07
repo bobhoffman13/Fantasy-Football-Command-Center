@@ -3,13 +3,17 @@
 // highly-ranked free agents in each league, and pushes a Pushover notification.
 //
 // Usage:  node ffcc-alerts.mjs [path/to/ffcc-alert-config.json]
-// Cron it (e.g. every 30 min during the season). State is kept in .ffcc-alert-state.json
-// so you only get alerted once per player.
+// Cron it (e.g. every 15 min during the season). State is kept in .ffcc-alert-state.json
+// so you only get alerted once per player. The large NFL player list is cached in
+// .ffcc-players-cache.json and only refreshed about once a day, so frequent polling
+// only does the cheap per-league roster fetch (and stays friendly to Sleeper's API).
 
 import fs from 'node:fs/promises';
 
 const CONFIG_PATH = process.argv[2] || './ffcc-alert-config.json';
 const STATE_PATH = './.ffcc-alert-state.json';
+const PLAYERS_PATH = './.ffcc-players-cache.json';
+const PLAYERS_MAX_AGE_MS = 18 * 60 * 60 * 1000; // refresh the big player list ~once a day
 const BASE = 'https://api.sleeper.app/v1';
 
 async function readJson(p, fallback) {
@@ -19,6 +23,17 @@ async function getJson(url) {
   const r = await fetch(url);
   if (!r.ok) throw new Error(url + ' -> ' + r.status);
   return r.json();
+}
+// Sleeper asks that /players/nfl be fetched at most ~once a day (it's multi-MB), so
+// cache it to disk and reuse until it ages out.
+async function getPlayers() {
+  const cached = await readJson(PLAYERS_PATH, null);
+  if (cached && cached.players && cached.fetchedAt && (Date.now() - cached.fetchedAt) < PLAYERS_MAX_AGE_MS) {
+    return cached.players;
+  }
+  const players = await getJson(BASE + '/players/nfl');
+  await fs.writeFile(PLAYERS_PATH, JSON.stringify({ fetchedAt: Date.now(), players }));
+  return players;
 }
 async function pushover(token, user, title, message) {
   if (!token || !user) { console.log('[no pushover creds] ' + title + ': ' + message); return; }
@@ -31,7 +46,7 @@ async function main() {
   const cfg = await readJson(CONFIG_PATH, null);
   if (!cfg) { console.error('Could not read ' + CONFIG_PATH); process.exit(1); }
   const state = await readJson(STATE_PATH, { alerted: {} });
-  const players = await getJson(BASE + '/players/nfl');
+  const players = await getPlayers();
 
   for (const league of cfg.leagues || []) {
     const rankings = league.rankings || {};

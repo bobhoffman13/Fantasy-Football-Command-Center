@@ -1,6 +1,7 @@
 # Companion runtime artifacts (contain your Pushover creds / state)
 companion/ffcc-alert-config.json
 companion/.ffcc-alert-state.json
+companion/.ffcc-players-cache.json
 companion/*.log
 companion/node_modules/
 

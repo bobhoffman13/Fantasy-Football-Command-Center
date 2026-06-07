@@ -23,6 +23,28 @@ map.
 - Node.js 18+ (uses the built-in `fetch`).
 - A free [Pushover](https://pushover.net) account + the Pushover app on your phone.
 
+## Run it on GitHub Actions (no always-on machine)
+
+The repo ships a scheduled workflow at [`.github/workflows/waiver-alerts.yml`](../.github/workflows/waiver-alerts.yml)
+that runs this script every 15 minutes on GitHub's infrastructure — no server or
+home computer required.
+
+1. In the web app, **Download config JSON** as usual.
+2. In this repo: **Settings → Secrets and variables → Actions → New repository
+   secret**. Name it **`FFCC_ALERT_CONFIG`** and paste the entire contents of
+   `ffcc-alert-config.json`. (This keeps your Pushover creds out of the repo.)
+3. Make sure the workflow file is on the repo's **default branch** — scheduled
+   workflows only fire from there. Use the **Actions** tab → *Waiver Alerts* →
+   **Run workflow** to test immediately.
+
+The workflow caches the alert-state and the player list between runs (GitHub
+runners are ephemeral), so you still only get alerted **once per player**, and
+the big player list is only refetched about once a day. Re-export and update the
+`FFCC_ALERT_CONFIG` secret whenever your leagues, thresholds, or rankings change.
+
+Change the cadence by editing the `cron:` line (GitHub's floor is every 5 min,
+but scheduled runs are best-effort and often delayed under load).
+
 ## Run it
 
 ```bash

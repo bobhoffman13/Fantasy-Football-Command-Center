@@ -1,0 +1,65 @@
+name: Waiver Alerts
+
+# Runs the companion waiver-alert poller on a schedule so you get Pushover
+# notifications for highly-ranked free agents — no always-on machine needed.
+#
+# Setup (one time):
+#   1. In the web app: set per-league rank thresholds + your Pushover creds,
+#      then "Download config JSON" (ffcc-alert-config.json).
+#   2. In this repo: Settings → Secrets and variables → Actions → New repository
+#      secret named FFCC_ALERT_CONFIG, and paste the entire contents of that JSON.
+#   3. This file must live on the default branch for the schedule to run.
+#
+# Re-export and update the FFCC_ALERT_CONFIG secret whenever your leagues,
+# thresholds, or rankings change.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 min (GitHub may delay scheduled runs under load)
+  workflow_dispatch: {} # adds a manual "Run workflow" button for testing
+
+permissions:
+  contents: read
+
+# Never let two runs overlap; let an in-flight run finish.
+concurrency:
+  group: waiver-alerts
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Carry the alert-state + cached player list between runs (runners are
+      # ephemeral). The run_id key never hits exactly, so cache always saves a
+      # fresh copy; restore-keys pulls the most recent prior copy.
+      - name: Restore runtime state
+        uses: actions/cache@v4
+        with:
+          path: |
+            companion/.ffcc-alert-state.json
+            companion/.ffcc-players-cache.json
+          key: ffcc-alert-runtime-${{ github.run_id }}
+          restore-keys: |
+            ffcc-alert-runtime-
+
+      - name: Write config from secret
+        working-directory: companion
+        env:
+          FFCC_ALERT_CONFIG: ${{ secrets.FFCC_ALERT_CONFIG }}
+        run: |
+          if [ -z "$FFCC_ALERT_CONFIG" ]; then
+            echo "::error::FFCC_ALERT_CONFIG secret is not set. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          printf '%s' "$FFCC_ALERT_CONFIG" > ffcc-alert-config.json
+
+      - name: Run waiver poller
+        working-directory: companion
+        run: node ffcc-alerts.mjs ffcc-alert-config.json

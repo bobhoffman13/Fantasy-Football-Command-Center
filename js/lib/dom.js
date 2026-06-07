@@ -61,7 +61,7 @@ export function toast(message, kind = 'info') {
   }, 2600);
 }
 
-export async function copyToClipboard(text) {
+export async function copyToClipboard(text, successMsg = 'Copied to clipboard') {
   try {
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text);
@@ -72,7 +72,7 @@ export async function copyToClipboard(text) {
       document.execCommand('copy');
       ta.remove();
     }
-    toast('Copied to clipboard', 'success');
+    toast(successMsg, 'success');
     return true;
   } catch {
     toast('Copy failed — select and copy manually', 'error');

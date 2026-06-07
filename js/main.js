@@ -1,5 +1,5 @@
 // App bootstrap, shell, router, and error boundary.
-import { div, span, btn, mount, el } from './lib/dom.js';
+import { div, span, btn, mount, el, copyToClipboard } from './lib/dom.js';
 import { NAV_AREAS } from './data/constants.js';
 import { parseHash, navigate, onRoute } from './router.js';
 import { loadPersisted, getState, setSession, subscribe } from './store.js';
@@ -61,8 +61,9 @@ function buildShell() {
   const app = document.getElementById('app');
   bannerEl = div({ class: 'offline-banner', style: { display: 'none' } });
   headerStatusEl = div({ class: 'header-status' });
-  const sleeperBtn = el('a', { href: 'https://sleeper.com', target: '_blank', rel: 'noopener', class: 'btn btn-sm header-sleeper' },
-    'Sleeper', span({ class: 'ext-arrow' }, '↗'));
+  const sleeperBtn = btn({ class: 'btn btn-sm header-sleeper', title: 'Copy link — paste in Safari',
+    onclick: () => copyToClipboard('https://sleeper.com', 'Link copied — paste in Safari to open Sleeper') },
+    'Sleeper', span({ class: 'copy-glyph' }, '⧉'));
   const header = el('header', { class: 'app-header' },
     div({ class: 'app-title' }, '🏈 Command Center'),
     div({ class: 'header-right' }, headerStatusEl, sleeperBtn),

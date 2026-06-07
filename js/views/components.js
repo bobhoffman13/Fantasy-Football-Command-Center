@@ -80,19 +80,21 @@ export function sleeperUrl(leagueId, section = 'team') {
   return leagueId ? `https://sleeper.com/leagues/${leagueId}/${seg}` : 'https://sleeper.com';
 }
 
-// A real <a> link. Tapping opens the Sleeper app (which only ever lands on its
-// home screen — it has no league deep-link). Long-pressing gives "Open in New
-// Tab", which opens this URL in Safari, where it lands on the exact league/page.
-// copyText: optional string copied on tap (e.g. a player name to paste into search).
+// Tapping COPIES a link/term to the clipboard (with a toast) so it can be pasted
+// into Safari — the only reliable way to reach a specific Sleeper league on iOS
+// (the app has no deep-link and an installed Home-Screen app can't long-press to
+// Safari). With copyText, copies that term (e.g. a player name) for Sleeper's
+// search; otherwise copies the league/page URL to paste into Safari's address bar.
 export function sleeperHandoff(label, { leagueId, section = 'team', copyText, primary = false, small = false } = {}) {
-  const cls = ['btn', 'btn-link', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
-  return el('a', {
-    href: sleeperUrl(leagueId, section),
-    target: '_blank',
-    rel: 'noopener',
+  const cls = ['btn', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
+  const onclick = copyText
+    ? () => copyToClipboard(copyText, `Copied “${copyText}” — paste into Sleeper search in Safari`)
+    : () => copyToClipboard(sleeperUrl(leagueId, section), 'Link copied — paste in Safari to open this page');
+  return btn({
     class: cls,
-    onclick: () => { if (copyText) copyToClipboard(copyText); },
-  }, label, span({ class: 'ext-arrow' }, '↗'));
+    title: copyText ? 'Copy name for Sleeper search' : 'Copy link — paste in Safari',
+    onclick,
+  }, label, span({ class: 'copy-glyph' }, '⧉'));
 }
 
 // Shared Pushover credentials card. Used by both Setup and Waiver Alerts so the

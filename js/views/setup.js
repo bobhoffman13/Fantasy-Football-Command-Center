@@ -78,15 +78,16 @@ function connectSection(settings, session, rerender) {
 }
 
 // --- Sleeper links tip ---
-// The Sleeper app has no league deep-link — any sleeper.com link opens the app
-// to its home screen. The only way to land on a specific league is the logged-in
-// web app in Safari, reachable via long-press → "Open in New Tab".
+// The Sleeper app has no league deep-link and an installed Home-Screen app can't
+// long-press to Safari, so tapping a Sleeper button copies the link instead —
+// paste it into Safari's address bar to land on the exact league/page.
 function sleeperLinksTip() {
   return div({ class: 'card' }, sectionTitle('Sleeper links'),
     div({ class: 'muted small' },
-      'Tapping a “Sleeper ↗” button opens the Sleeper app — but the app always lands on its home screen (it can’t deep-link to a league). ',
-      'To jump straight to the exact league or page, ', span({ class: 'tip-strong' }, 'long-press the button and choose “Open in New Tab.”'),
-      ' That opens it in Safari, where you’re logged in and it lands in the right place.'));
+      'Tapping a “Sleeper ⧉” button ', span({ class: 'tip-strong' }, 'copies that league/page’s link.'),
+      ' Open Safari, tap the address bar, paste, and go — you’ll land on the exact page, logged in. ',
+      '(The Sleeper app can’t open a specific league, so we hand you the link for Safari instead.) ',
+      'On the Free Agents list, the per-player button copies the player’s name to paste into Sleeper search.'));
 }
 
 // --- League config: type, commish, profile assignment ---

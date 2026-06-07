@@ -62,6 +62,27 @@ export function sectionTitle(text, sub) {
   return div({ class: 'section-title' }, span({}, text), sub ? span({ class: 'section-sub' }, sub) : null);
 }
 
+// Shared Pushover credentials card. Used by both Setup and Waiver Alerts so the
+// two never drift. Saves are debounced so typing doesn't thrash localStorage.
+export function notifCredsCard() {
+  const card = div({ class: 'card' },
+    sectionTitle('Pushover credentials', 'Used only by the exported companion alert script'));
+  card.appendChild(credInput('App token', () => getState().settings.notifCreds.pushoverToken,
+    (v) => setSettings({ notifCreds: { ...getState().settings.notifCreds, pushoverToken: v } })));
+  card.appendChild(credInput('User key', () => getState().settings.notifCreds.pushoverUser,
+    (v) => setSettings({ notifCreds: { ...getState().settings.notifCreds, pushoverUser: v } })));
+  card.appendChild(div({ class: 'muted small' }, 'Get these from pushover.net. Stored locally; only the downloaded script uses them.'));
+  return card;
+}
+
+function credInput(label, getValue, onChange) {
+  let t = null;
+  const input = el('input', { type: 'text', class: 'input', value: getValue() || '', placeholder: label,
+    autocapitalize: 'none', autocorrect: 'off', spellcheck: false,
+    oninput: (e) => { clearTimeout(t); const v = e.target.value.trim(); t = setTimeout(() => onChange(v), 500); } });
+  return div({ class: 'field' }, span({ class: 'field-label' }, label), input);
+}
+
 // League selector dropdown that remembers the last selection per view.
 // onChange(leagueId) is called on selection. filterCommish limits to commish leagues.
 export function leagueSelector(viewId, onChange, { filterCommish = false } = {}) {

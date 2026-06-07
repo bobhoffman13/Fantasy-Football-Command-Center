@@ -1,8 +1,8 @@
 // LEAGUES > Waiver Alerts (config)
 import { div, span, btn, mount } from '../lib/dom.js';
-import { getState, updateMap, setSettings } from '../store.js';
+import { getState, updateMap } from '../store.js';
 import { copyToClipboard, toast } from '../lib/dom.js';
-import { leagueSelector, debouncedNumberInput, sectionTitle, emptyBlock } from './components.js';
+import { leagueSelector, debouncedNumberInput, sectionTitle, emptyBlock, notifCredsCard } from './components.js';
 import { buildAlertConfig, ALERT_SCRIPT } from '../lib/alertconfig.js';
 
 export function render(container) {
@@ -28,12 +28,8 @@ export function render(container) {
     })),
   ));
 
-  // Notification credentials (used only by exported script)
-  root.appendChild(div({ class: 'card' },
-    sectionTitle('Pushover credentials', 'Used only by the exported companion script'),
-    credInput('App token', settings.notifCreds.pushoverToken, (v) => setSettings({ notifCreds: { ...getState().settings.notifCreds, pushoverToken: v } })),
-    credInput('User key', settings.notifCreds.pushoverUser, (v) => setSettings({ notifCreds: { ...getState().settings.notifCreds, pushoverUser: v } })),
-  ));
+  // Notification credentials (shared card; also appears in Setup)
+  root.appendChild(notifCredsCard());
 
   // Export
   root.appendChild(div({ class: 'card' },
@@ -47,19 +43,6 @@ export function render(container) {
   ));
 
   mount(container, root);
-}
-
-function credInput(label, value, onChange) {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.className = 'input';
-  input.value = value || '';
-  input.placeholder = label;
-  let t = null;
-  input.addEventListener('input', (e) => { clearTimeout(t); const v = e.target.value; t = setTimeout(() => onChange(v), 500); });
-  const wrap = div({ class: 'field' }, span({ class: 'field-label' }, label));
-  wrap.appendChild(input);
-  return wrap;
 }
 
 function download(name, text, type = 'application/json') {

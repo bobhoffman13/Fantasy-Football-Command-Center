@@ -225,6 +225,9 @@ body {
 .toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; min-height: 38px; }
 .toggle input { width: 20px; height: 20px; accent-color: var(--primary); }
 
+/* Roster group heading */
+.group-heading { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin: 4px 2px 8px; }
+
 /* Lineup slots */
 .slot-row { gap: 10px; }
 .slot-tag { flex: 0 0 64px; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--surface-2); border-radius: 7px; padding: 5px 6px; text-align: center; }

@@ -32,12 +32,14 @@ async function load(leagueId) {
   const starters = new Set(ctx.myRoster.starters || []);
   const reserve = new Set([...(ctx.myRoster.reserve || []), ...(ctx.myRoster.taxi || [])]);
 
-  // Group by primary position.
+  // Starters grouped by position (canonical order), then a dedicated Bench
+  // group, then IR/taxi. (Spec 5.2.1: "...by position ... then bench/IR".)
   const groups = {};
   for (const p of players) {
     let key;
     if (reserve.has(p.playerId)) key = 'IR';
-    else key = p.positions[0] || 'BN';
+    else if (starters.has(p.playerId)) key = p.positions[0] || 'FLEX';
+    else key = 'BN';
     (groups[key] = groups[key] || []).push(p);
   }
   for (const k of Object.keys(groups)) groups[k].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
@@ -57,27 +59,29 @@ async function load(leagueId) {
     ));
   }
 
+  const GROUP_LABELS = { BN: 'Bench', IR: 'IR / Taxi' };
   const orderedKeys = [...POSITION_ORDER.filter((k) => groups[k]), ...Object.keys(groups).filter((k) => !POSITION_ORDER.includes(k))];
+  const starterKeys = orderedKeys.filter((k) => k !== 'BN' && k !== 'IR');
+  if (starterKeys.length) out.appendChild(div({ class: 'group-heading' }, 'Starting lineup'));
   for (const key of orderedKeys) {
     const list = groups[key];
     if (!list?.length) continue;
     out.appendChild(div({ class: 'card pos-group' },
-      sectionTitle(key, `${list.length}`),
-      div({ class: 'list' }, ...list.map((p) => playerRow(p, starters.has(p.playerId)))),
+      sectionTitle(GROUP_LABELS[key] || key, `${list.length}`),
+      div({ class: 'list' }, ...list.map(playerRow)),
     ));
   }
 
   return out;
 }
 
-function playerRow(p, isStarter) {
-  return div({ class: 'player-row' + (isStarter ? ' is-starter' : '') },
+function playerRow(p) {
+  return div({ class: 'player-row' },
     div({ class: 'pr-main' },
       span({ class: 'pr-name' }, p.name),
       span({ class: 'pr-meta muted small' }, [p.team, p.positions.join('/'), p.age ? `${p.age}y` : null].filter(Boolean).join(' · ')),
     ),
     div({ class: 'row-badges' },
-      isStarter ? span({ class: 'badge starter' }, 'ST') : null,
       byeBadge(p.onBye, p.byeWeek),
       injuryBadge(p.injuryStatus),
       rankBadge(p.rank),

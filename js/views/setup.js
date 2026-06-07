@@ -10,7 +10,7 @@ import { clearLookupCache } from '../lib/players.js';
 import { ensureActivityPolling } from '../activity.js';
 import { RISK_MODES, STALE_DAYS, SEASON_FALLBACK } from '../data/constants.js';
 import { daysSince } from '../lib/format.js';
-import { sectionTitle } from './components.js';
+import { sectionTitle, notifCredsCard } from './components.js';
 
 // Local UI state for the new-profile form (persists across re-renders).
 const newProfile = { name: '', type: 'redraft' };
@@ -29,6 +29,7 @@ export function render(container) {
   root.appendChild(profilesSection(rerender));
   root.appendChild(legacySection(rerender));
   root.appendChild(riskSection(settings, rerender));
+  root.appendChild(notifCredsCard());
   root.appendChild(dangerSection(rerender));
 
   mount(container, root);

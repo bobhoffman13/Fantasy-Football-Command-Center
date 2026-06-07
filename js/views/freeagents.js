@@ -24,25 +24,34 @@ export function render(container) {
   function trigger() { if (local.leagueId) run(() => load(local.leagueId)); }
 }
 
+const CORE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
+
 async function load(leagueId) {
   const ctx = await loadLeagueContext(leagueId);
-  if (!ctx.ranking) {
-    const wrap = div({});
-    wrap.appendChild(matchDiagnostic(null));
-    return wrap;
-  }
   const rostered = rosteredPlayerIds(ctx.rosters);
   const threshold = getState().settings.thresholds[leagueId] || null;
 
-  // Build the full free-agent pool from ranked players not on any roster.
+  // Build the full free-agent pool: every unrostered player, ranked or not.
+  // Ranked players (incl. IDP if in your CSV) are always included; unranked
+  // players are limited to core fantasy positions to keep the list relevant.
   const pool = [];
-  for (const [id] of ctx.rankingLookup) {
+  for (const id of Object.keys(ctx.players)) {
     if (rostered.has(id)) continue;
     const p = ctx.players[id];
-    if (p && p.active === false) continue;
+    if (!p || p.active === false) continue;
+    const positions = p.fantasy_positions || (p.position ? [p.position] : []);
+    if (!positions.length) continue;
+    const ranked = ctx.rankingLookup.has(id);
+    if (!ranked && !positions.some((pos) => CORE_POSITIONS.has(pos))) continue;
     pool.push(enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode));
   }
-  pool.sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
+  // Ranked first (by rank), then unranked alphabetically.
+  pool.sort((a, b) => {
+    const au = a.rank == null, bu = b.rank == null;
+    if (au !== bu) return au ? 1 : -1;
+    if (!au) return a.rank - b.rank;
+    return a.name.localeCompare(b.name);
+  });
 
   // FAAB / waiver indicator.
   const lset = ctx.league?.settings || {};

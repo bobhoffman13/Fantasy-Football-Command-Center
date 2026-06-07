@@ -63,21 +63,15 @@ async function loadPlayoff(leagueId, week) {
   const spots = league?.settings?.playoff_teams || 6;
   const regEnd = (league?.settings?.playoff_week_start || 15) - 1;
   const gamesLeft = Math.max(0, regEnd - week);
-
-  // Approximate clinch: a team above the line is clinched if even the best-case
-  // record of the first team below the line can't catch it.
-  const firstOut = standings[spots];
-  const firstOutMaxWins = firstOut ? firstOut.wins + gamesLeft : -1;
+  const statuses = computePlayoffStatus(standings, spots, gamesLeft);
 
   const out = div({});
   out.appendChild(div({ class: 'card' },
     sectionTitle(league?.name || 'Standings', `Through Week ${week} · top ${spots} make playoffs`),
+    gamesLeft === 0
+      ? div({ class: 'muted small' }, 'Regular season complete — standings are final.')
+      : div({ class: 'muted small' }, `${gamesLeft} week${gamesLeft > 1 ? 's' : ''} left. Clinch/elimination is win-based and does not model tiebreakers (PF, head-to-head).`),
     div({ class: 'standings' }, ...standings.map((s, i) => {
-      const inSpot = i < spots;
-      const clinched = inSpot && gamesLeft >= 0 && s.wins > firstOutMaxWins;
-      const tag = clinched ? span({ class: 'pill pill-good' }, 'Clinched')
-        : inSpot ? span({ class: 'pill pill-good' }, 'In')
-        : span({ class: 'pill pill-bad' }, 'Out');
       return [
         i === spots ? div({ class: 'playoff-line' }, `— playoff line (${spots}) —`) : null,
         div({ class: 'standings-row' },
@@ -85,13 +79,42 @@ async function loadPlayoff(leagueId, week) {
           span({ class: 'sr-owner' }, s.owner),
           span({ class: 'sr-rec' }, `${s.wins}-${s.losses}${s.ties ? '-' + s.ties : ''}`),
           span({ class: 'sr-pf muted small' }, s.pf.toFixed(1)),
-          tag,
+          statusTag(statuses[i]),
         ),
       ];
     })),
     div({ class: 'btn-row' }, btn({ class: 'btn', onclick: () => copyStandings(league, standings, spots, week) }, 'Copy playoff picture')),
   ));
   return out;
+}
+
+// Returns a status per standings row: 'clinched' | 'in' | 'out' | 'eliminated'.
+// Win-based bounds with games remaining (tiebreakers not modeled).
+function computePlayoffStatus(standings, spots, gamesLeft) {
+  const firstOutWins = standings[spots]?.wins ?? -1;      // best team currently outside
+  const lastInWins = standings[spots - 1]?.wins ?? Infinity; // worst team currently inside
+  return standings.map((s, i) => {
+    const inSpot = i < spots;
+    const maxWins = s.wins + gamesLeft;
+    if (inSpot) {
+      // Clinched if even the best team outside, winning out, can't pass you.
+      if (s.wins > firstOutWins + gamesLeft) return 'clinched';
+      return 'in';
+    }
+    // Outside the line: eliminated if you can't even reach the worst team
+    // currently holding a spot (who can only climb from here).
+    if (maxWins < lastInWins) return 'eliminated';
+    return 'out';
+  });
+}
+
+function statusTag(status) {
+  switch (status) {
+    case 'clinched': return span({ class: 'pill pill-good' }, 'Clinched');
+    case 'in': return span({ class: 'pill pill-good' }, 'In');
+    case 'eliminated': return span({ class: 'pill pill-bad' }, 'Eliminated');
+    default: return span({ class: 'pill pill-bad' }, 'Out');
+  }
 }
 
 function copyStandings(league, standings, spots, week) {

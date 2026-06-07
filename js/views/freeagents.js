@@ -1,5 +1,6 @@
 // LEAGUES > Free Agents
 import { div, span, el, btn, mount } from '../lib/dom.js';
+import { navigate } from '../router.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
 import { getState } from '../store.js';
@@ -80,7 +81,10 @@ async function load(leagueId) {
     : null;
 
   out.appendChild(div({ class: 'card fa-controls' },
-    faabNode ? div({ class: 'fa-controls-top' }, faabNode) : null,
+    div({ class: 'fa-controls-top' },
+      faabNode,
+      btn({ class: 'btn btn-sm', onclick: () => navigate('leagues', 'waivers') }, '🔔 Waiver Alerts'),
+    ),
     threshold ? div({ class: 'muted small' }, `Alert threshold: ${threshold}`) : null,
     div({ class: 'fa-controls-row' }, search, posSel),
     alertToggle ? div({ class: 'fa-controls-row' }, alertToggle) : null,

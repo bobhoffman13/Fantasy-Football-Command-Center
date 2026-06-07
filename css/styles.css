@@ -341,3 +341,5 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .tf-check-lv { flex-shrink: 0; }
 .tf-pkg-label { font-weight: 700; color: var(--text); }
 .tf-gain-num.neg { color: var(--warn); }
+
+.tf-back { margin-bottom: 10px; }

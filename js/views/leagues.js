@@ -2,7 +2,7 @@
 import { div, btn, mount } from '../lib/dom.js';
 import { LEAGUE_VIEWS } from '../data/constants.js';
 import { navigate } from '../router.js';
-import * as roster from './roster.js';
+import { getState } from '../store.js';
 import * as matchup from './matchup.js';
 import * as freeagents from './freeagents.js';
 import * as tradefinder from './tradefinder.js';
@@ -10,13 +10,20 @@ import * as lineupview from './lineupview.js';
 import * as waivers from './waivers.js';
 import * as overview from './overview.js';
 
-const VIEW_MAP = { roster, matchup, freeagents, tradefinder, lineup: lineupview, waivers, overview };
+// 'transactions' is served by the overview module. 'waivers' is reachable from the
+// Free Agents page (a button), so it stays renderable here without being a tab.
+const VIEW_MAP = { lineup: lineupview, matchup, freeagents, tradefinder, transactions: overview, waivers };
 
 export function render(container, sub) {
-  const active = VIEW_MAP[sub] ? sub : 'roster';
+  const isOffseason = getState().session.nflState?.season_type === 'off';
+  const views = LEAGUE_VIEWS.filter((v) => !(v.hideInOffseason && isOffseason));
+
+  let active = VIEW_MAP[sub] ? sub : 'lineup';
+  if (active === 'matchup' && isOffseason) active = 'lineup'; // tab hidden in offseason
+
   const root = div({ class: 'view-area' });
 
-  const tabs = div({ class: 'subnav' }, ...LEAGUE_VIEWS.map((v) =>
+  const tabs = div({ class: 'subnav' }, ...views.map((v) =>
     btn({ class: 'subnav-tab' + (v.id === active ? ' active' : ''), onclick: () => navigate('leagues', v.id) }, v.label)));
   root.appendChild(tabs);
 

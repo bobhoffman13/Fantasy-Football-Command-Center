@@ -35,6 +35,14 @@ function paramKey(p) {
   return `${p.isDynasty ? 'dyn' : 'red'}:${p.numQbs}:${p.numTeams}:${p.ppr}`;
 }
 
+// TE premium = bonus points per TE reception (Sleeper: scoring_settings.bonus_rec_te).
+// FantasyCalc's API has no TE-premium setting, so callers use this to approximate it.
+// Returns 0 when the league isn't TE premium.
+export function getTePremium(league) {
+  const v = Number(league?.scoring_settings?.bonus_rec_te);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 // Returns Map(sleeperId -> { value, overallRank, positionRank, trend }) or null on
 // any failure. Never throws.
 export async function getConsensusValues(params) {

@@ -13,7 +13,7 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
 import { getState, getActiveLeagueId } from '../store.js';
-import { getConsensusValues, leagueToConsensusParams } from '../api/fantasycalc.js';
+import { getConsensusValues, leagueToConsensusParams, getTePremium } from '../api/fantasycalc.js';
 import { asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
 
 // Cap on how much more valuable a target may be than the player you'd give up.
@@ -24,6 +24,10 @@ const FAIR_MAX_GAIN = 0.5; // +50%
 // giving up more total value to land a single stud. Allow targets down to this much
 // below the package total so those realistic deals still show.
 const PACKAGE_DISCOUNT = 0.25; // -25%
+// Approximate TE-premium handling: FantasyCalc's consensus ignores TE premium, so we
+// bump TE consensus values by this fraction per point of bonus_rec_te before ranking
+// (e.g. 0.5/rec premium -> +20%). A heuristic, not real TE-premium data.
+const TE_BUMP_PER_POINT = 0.4;
 
 const local = { leagueId: null, selectedIds: [], pos: 'ALL', buyLowOnly: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE'];
@@ -46,10 +50,13 @@ function fmtVal(v) {
   return Math.round(v).toLocaleString();
 }
 
-// Attach my ranking-derived fields + public consensus to a player id.
-function describe(id, ctx, consensus) {
+// Attach my ranking-derived fields + public consensus to a player id. teFactor scales
+// TE consensus values to approximate TE premium (1 = no adjustment / not TE premium).
+function describe(id, ctx, consensus, teFactor) {
   const p = enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode);
-  p.consensus = consensus ? consensus.get(String(id)) || null : null;
+  const c = consensus ? consensus.get(String(id)) || null : null;
+  p.consensus = c;
+  p.consensusValueAdj = c ? c.value * (p.positions.includes('TE') ? teFactor : 1) : null;
   return p;
 }
 
@@ -58,6 +65,8 @@ async function load(leagueId) {
   const isDynasty = getState().settings.leagueTypes[leagueId] === 'dynasty';
   const params = leagueToConsensusParams(ctx.league, isDynasty);
   const consensus = await getConsensusValues(params); // null on failure — optional
+  const tePremium = getTePremium(ctx.league);
+  const teFactor = 1 + tePremium * TE_BUMP_PER_POINT; // 1 when not TE premium
 
   if (!ctx.myRoster) {
     return div({}, matchDiagnostic(ctx.diagnostic, { compact: true }),
@@ -66,7 +75,7 @@ async function load(leagueId) {
 
   // My roster, enriched + sorted by Lifetime Value (most valuable first).
   const myPlayers = (ctx.myRoster.players || [])
-    .map((id) => describe(id, ctx, consensus))
+    .map((id) => describe(id, ctx, consensus, teFactor))
     .sort((a, b) => (b.lifetimeValue ?? -Infinity) - (a.lifetimeValue ?? -Infinity));
   const myValued = myPlayers.filter((p) => p.lifetimeValue != null);
 
@@ -81,7 +90,7 @@ async function load(leagueId) {
     if (r.roster_id === myRosterId) continue;
     const owner = ownerDisplayName(ctx.usersById, r.owner_id);
     for (const id of r.players || []) {
-      const t = describe(id, ctx, consensus);
+      const t = describe(id, ctx, consensus, teFactor);
       if (t.lifetimeValue == null) continue;
       t.owner = owner;
       targets.push(t);
@@ -97,7 +106,7 @@ async function load(leagueId) {
 
   const out = div({});
   out.appendChild(matchDiagnostic(ctx.diagnostic, { compact: true }));
-  out.appendChild(consensusBanner(consensus, params));
+  out.appendChild(consensusBanner(consensus, params, tePremium, teFactor));
   out.appendChild(teamSummary(myValued));
   out.appendChild(sellHighBoard(myValued, arbThreshold));
 
@@ -149,23 +158,26 @@ async function load(leagueId) {
 // a Lifetime Value and a public value, by ranking the shared pool both ways. Returns a
 // threshold (in spots, scaled to pool size) at which a divergence is worth flagging.
 function computeArbitrage(pool) {
-  const rated = pool.filter((p) => p.lifetimeValue != null && p.consensus && p.consensus.value != null);
+  const rated = pool.filter((p) => p.lifetimeValue != null && p.consensusValueAdj != null);
   for (const p of pool) p.arbDelta = null;
   if (rated.length < 4) return Infinity; // too few to compare meaningfully
 
   const byMine = [...rated].sort((a, b) => b.lifetimeValue - a.lifetimeValue);
   byMine.forEach((p, i) => { p._lvRank = i + 1; });
-  const byPublic = [...rated].sort((a, b) => b.consensus.value - a.consensus.value);
+  const byPublic = [...rated].sort((a, b) => b.consensusValueAdj - a.consensusValueAdj);
   byPublic.forEach((p, i) => { p._pubRank = i + 1; });
   for (const p of rated) p.arbDelta = p._pubRank - p._lvRank;
 
   return Math.max(5, Math.ceil(rated.length * 0.05));
 }
 
-function consensusBanner(consensus, params) {
+function consensusBanner(consensus, params, tePremium, teFactor) {
   if (consensus) {
     const fmt = `${params.isDynasty ? 'Dynasty' : 'Redraft'} · ${params.numQbs === 2 ? 'SF/2QB' : '1QB'} · ${params.numTeams}-team · ${params.ppr} PPR`;
-    return div({ class: 'diag diag-ok' }, `Public consensus loaded (FantasyCalc · ${fmt}). Arbitrage tags compare your rank vs the public's.`);
+    const teNote = tePremium > 0
+      ? ` TE premium isn't in the public data, so TE values are bumped ~${Math.round((teFactor - 1) * 100)}% (estimate).`
+      : '';
+    return div({ class: 'diag diag-ok' }, `Public consensus loaded (FantasyCalc · ${fmt}). Arbitrage tags compare your rank vs the public's.${teNote}`);
   }
   return div({ class: 'diag diag-warn' }, '⚠ Public consensus unavailable — showing Lifetime Value only. Buy-low / market tags are hidden.');
 }

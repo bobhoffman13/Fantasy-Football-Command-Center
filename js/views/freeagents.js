@@ -1,9 +1,10 @@
 // LEAGUES > Free Agents
 import { div, span, el, btn, mount } from '../lib/dom.js';
+import { navigate } from '../router.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
-import { getState } from '../store.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
+import { getState, getActiveLeagueId } from '../store.js';
+import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const local = { leagueId: null, pos: 'ALL', q: '', onlyAlerts: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -14,14 +15,11 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('freeagents', (id) => { local.leagueId = id; trigger(); });
-  if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) local.leagueId = sel.selectedId;
+  local.leagueId = getActiveLeagueId();
 
-  root.append(sel.node, body);
+  root.append(body);
   mount(container, root);
-  trigger();
-
-  function trigger() { if (local.leagueId) run(() => load(local.leagueId)); }
+  if (local.leagueId) run(() => load(local.leagueId));
 }
 
 const CORE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
@@ -80,7 +78,10 @@ async function load(leagueId) {
     : null;
 
   out.appendChild(div({ class: 'card fa-controls' },
-    faabNode ? div({ class: 'fa-controls-top' }, faabNode) : null,
+    div({ class: 'fa-controls-top' },
+      faabNode,
+      btn({ class: 'btn btn-sm', onclick: () => navigate('leagues', 'waivers') }, '🔔 Waiver Alerts'),
+    ),
     threshold ? div({ class: 'muted small' }, `Alert threshold: ${threshold}`) : null,
     div({ class: 'fa-controls-row' }, search, posSel),
     alertToggle ? div({ class: 'fa-controls-row' }, alertToggle) : null,

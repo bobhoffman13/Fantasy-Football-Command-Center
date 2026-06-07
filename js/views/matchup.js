@@ -4,8 +4,8 @@ import { getMatchups } from '../api/sleeper.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
 import { isActiveSeason, fmtPoints } from '../lib/format.js';
 import { playerName, playerPositions } from '../lib/players.js';
-import { leagueSelector, asyncRegion, emptyBlock, sectionTitle } from './components.js';
-import { getState } from '../store.js';
+import { asyncRegion, emptyBlock, sectionTitle } from './components.js';
+import { getState, getActiveLeagueId } from '../store.js';
 
 const local = { leagueId: null, week: null };
 
@@ -14,11 +14,7 @@ export function render(container) {
   const body = div({ class: 'view-body' });
   const run = asyncRegion(body);
 
-  const sel = leagueSelector('matchup', (id) => { local.leagueId = id; trigger(); });
-  if (!local.leagueId || local.leagueId !== sel.selectedId) {
-    // keep remembered if still valid, else default
-    if (!getState().session.leagues.some((l) => l.league_id === local.leagueId)) local.leagueId = sel.selectedId;
-  }
+  local.leagueId = getActiveLeagueId();
 
   // Week selector
   const nfl = getState().session.nflState;
@@ -29,7 +25,7 @@ export function render(container) {
       ...Array.from({ length: 18 }, (_, i) => i + 1).map((w) => el('option', { value: w, selected: w === local.week }, `Week ${w}`))),
   );
 
-  root.append(sel.node, weekSel, body);
+  root.append(weekSel, body);
   mount(container, root);
   trigger();
 

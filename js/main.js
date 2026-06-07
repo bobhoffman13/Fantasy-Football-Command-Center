@@ -55,16 +55,17 @@ async function boot() {
   subscribe(['nflState'], paintHeaderStatus);
   // Re-render nav highlight + current view when the league set changes (e.g. connect).
   subscribe(['leagues'], () => { paintNav(); });
+  // Changing the global active league re-renders the current route so league pages reload.
+  subscribe('globalLeague', renderRoute);
 }
 
 function buildShell() {
   const app = document.getElementById('app');
   bannerEl = div({ class: 'offline-banner', style: { display: 'none' } });
   headerStatusEl = div({ class: 'header-status' });
-  // Opens the Sleeper app (sleeper.com is a universal link on iOS); on other
-  // platforms it opens the Sleeper web app in a new tab.
-  const sleeperBtn = el('a', { class: 'btn btn-sm header-sleeper', href: 'https://sleeper.com',
-    target: '_blank', rel: 'noopener', title: 'Open Sleeper' }, 'Sleeper');
+  // Opens the Sleeper mobile app via its custom URL scheme.
+  const sleeperBtn = el('a', { class: 'btn btn-sm header-sleeper', href: 'sleeper://',
+    title: 'Open the Sleeper app' }, 'Sleeper');
   const header = el('header', { class: 'app-header' },
     div({ class: 'app-title' }, '🏈 Command Center'),
     div({ class: 'header-right' }, headerStatusEl, sleeperBtn),

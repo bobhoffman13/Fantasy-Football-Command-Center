@@ -331,3 +331,20 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .badge.arb-sell { background: rgba(255,182,72,.2); color: var(--warn); }
 .badge.arb-premium { background: rgba(255,93,93,.16); color: var(--bad); }
 .badge.arb-fair { background: rgba(141,151,184,.16); color: var(--muted); }
+
+/* Trade Finder — multi-select package picker */
+.tf-checklist { max-height: 240px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.tf-check-row { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--border); cursor: pointer; min-height: 40px; }
+.tf-check-row:last-child { border-bottom: none; }
+.tf-check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex-shrink: 0; }
+.tf-check-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tf-check-lv { flex-shrink: 0; }
+.tf-pkg-label { font-weight: 700; color: var(--text); }
+.tf-gain-num.neg { color: var(--warn); }
+
+.tf-back { margin-bottom: 10px; }
+
+/* Global league picker (top of the Leagues area) */
+.league-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.league-bar .field-label { margin-bottom: 0; flex-shrink: 0; }
+.league-bar .select { flex: 1; }

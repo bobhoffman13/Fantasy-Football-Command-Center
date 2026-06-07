@@ -1,7 +1,8 @@
-// LEAGUES > Waiver Alerts (config)
+// LEAGUES > Waiver Alerts (config) — reached via a button on the Free Agents page.
 import { div, span, btn, mount } from '../lib/dom.js';
 import { getState, updateMap } from '../store.js';
 import { copyToClipboard, toast } from '../lib/dom.js';
+import { navigate } from '../router.js';
 import { leagueSelector, debouncedNumberInput, sectionTitle, emptyBlock, notifCredsCard } from './components.js';
 import { buildAlertConfig, ALERT_SCRIPT } from '../lib/alertconfig.js';
 
@@ -13,6 +14,8 @@ export function render(container) {
     mount(container, root, emptyBlock('Connect your account in Setup to configure waiver alerts.'));
     return;
   }
+
+  root.appendChild(btn({ class: 'btn btn-sm tf-back', onclick: () => navigate('leagues', 'freeagents') }, '← Free Agents'));
 
   root.appendChild(div({ class: 'card' },
     sectionTitle('Per-league waiver thresholds', 'Alert when a free agent is ranked at or above N'),

@@ -64,13 +64,11 @@ export const NAV_AREAS = [
 ];
 
 export const LEAGUE_VIEWS = [
-  { id: 'roster', label: 'My Roster' },
-  { id: 'matchup', label: 'Matchup' },
+  { id: 'lineup', label: 'Lineup' },
+  { id: 'matchup', label: 'Matchup', hideInOffseason: true },
   { id: 'freeagents', label: 'Free Agents' },
   { id: 'tradefinder', label: 'Trade Finder' },
-  { id: 'lineup', label: 'Lineup' },
-  { id: 'waivers', label: 'Waiver Alerts' },
-  { id: 'overview', label: 'Overview' },
+  { id: 'transactions', label: 'Transactions' },
 ];
 
 export const DRAFT_FORMATS = ['Snake', 'Auction', 'Linear'];

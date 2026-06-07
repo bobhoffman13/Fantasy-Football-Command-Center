@@ -4,7 +4,9 @@ import { getState, getProfiles } from '../store.js';
 import { navigate } from '../router.js';
 import { seasonTypeLabel, daysSince } from '../lib/format.js';
 import { STALE_DAYS } from '../data/constants.js';
-import { sectionTitle } from './components.js';
+import { getRosters, getLeagueUsers } from '../api/sleeper.js';
+import { computeStandings } from '../lib/league.js';
+import { sectionTitle, loadingBlock, emptyBlock } from './components.js';
 
 export function render(container) {
   const { settings, session } = getState();
@@ -42,6 +44,28 @@ export function render(container) {
     statCard(commish, 'Commish'),
   ));
 
+  // Your leagues — standings summary per league (lazy/parallel).
+  if (leagues.length) {
+    root.appendChild(sectionTitle('Your leagues'));
+    const cards = div({ class: 'overview-cards' });
+    for (const l of leagues) {
+      const card = div({ class: 'card league-card' },
+        div({ class: 'lc-head' },
+          span({ class: 'lc-name' }, l.name),
+          span({ class: 'lc-tags' },
+            span({ class: 'pill' }, settings.leagueTypes[l.league_id] === 'dynasty' ? 'dynasty' : 'redraft'),
+            settings.commishFlags[l.league_id] ? span({ class: 'pill pill-commish' }, 'commish') : null,
+          ),
+        ),
+        div({ class: 'lc-meta muted small' }, `${l.total_rosters || '?'} teams · ${l.season}`),
+        div({ class: 'lc-body' }, loadingBlock('Loading standings…')),
+      );
+      cards.appendChild(card);
+      loadCard(card.querySelector('.lc-body'), l, settings.userId);
+    }
+    root.appendChild(cards);
+  }
+
   // Rankings status
   const profiles = getProfiles();
   const rankCard = div({ class: 'card' }, sectionTitle('Rankings'));
@@ -72,11 +96,11 @@ export function render(container) {
   // Quick nav
   root.appendChild(div({ class: 'card' }, sectionTitle('Jump to'),
     div({ class: 'quicknav' },
-      quick('My Roster', () => navigate('leagues', 'roster')),
+      quick('Lineup', () => navigate('leagues', 'lineup')),
       quick('Matchup', () => navigate('leagues', 'matchup')),
       quick('Free Agents', () => navigate('leagues', 'freeagents')),
-      quick('Lineup', () => navigate('leagues', 'lineup')),
-      quick('Overview', () => navigate('leagues', 'overview')),
+      quick('Trade Finder', () => navigate('leagues', 'tradefinder')),
+      quick('Transactions', () => navigate('leagues', 'transactions')),
       quick('Commish', () => navigate('commish')),
       quick('Tools', () => navigate('tools')),
       quick('Setup', () => navigate('setup')),
@@ -84,6 +108,37 @@ export function render(container) {
   ));
 
   mount(container, root);
+}
+
+async function loadCard(body, league, userId) {
+  try {
+    const [rosters, users] = await Promise.all([getRosters(league.league_id), getLeagueUsers(league.league_id)]);
+    const usersById = {};
+    for (const u of users) usersById[u.user_id] = u;
+    const standings = computeStandings(rosters, usersById);
+    const myIdx = standings.findIndex((s) => s.ownerId === userId);
+    const me = myIdx >= 0 ? standings[myIdx] : null;
+    const playoffSpots = league.settings?.playoff_teams || 6;
+    const inPlayoffs = myIdx >= 0 && myIdx < playoffSpots;
+
+    mount(body,
+      me
+        ? div({ class: 'lc-stats' },
+            span({}, `${me.wins}-${me.losses}${me.ties ? '-' + me.ties : ''}`),
+            span({ class: 'muted' }, `${ordinalRank(myIdx + 1)} of ${standings.length}`),
+            span({ class: inPlayoffs ? 'pill pill-good' : 'pill pill-bad' }, inPlayoffs ? 'In playoff spot' : 'Outside'),
+          )
+        : emptyBlock('No team found here for your account.'),
+    );
+  } catch (e) {
+    mount(body, div({ class: 'errbox-inline' }, '⚠ ' + (e?.message || 'Failed to load.')));
+  }
+}
+
+function ordinalRank(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
 function statCard(n, label) {

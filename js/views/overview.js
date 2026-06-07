@@ -5,7 +5,7 @@ import { getRosters, getLeagueUsers, getPlayers, getCachedPlayersSync } from '..
 import { computeStandings } from '../lib/league.js';
 import { playerName } from '../lib/players.js';
 import { relativeTime } from '../lib/format.js';
-import { loadingBlock, emptyBlock, sectionTitle } from './components.js';
+import { loadingBlock, emptyBlock, sectionTitle, sleeperHandoff } from './components.js';
 import { notifyActivitySeen } from '../activity.js';
 
 export function render(container) {
@@ -26,6 +26,7 @@ export function render(container) {
         span({ class: 'lc-tags' },
           settings.leagueTypes[l.league_id] === 'dynasty' ? span({ class: 'pill' }, 'dynasty') : span({ class: 'pill' }, 'redraft'),
           settings.commishFlags[l.league_id] ? span({ class: 'pill pill-commish' }, 'commish') : null,
+          sleeperHandoff('Open', { leagueId: l.league_id, section: 'team', small: true }),
         ),
       ),
       div({ class: 'lc-meta muted small' }, `${l.total_rosters || '?'} teams · ${l.season}`),

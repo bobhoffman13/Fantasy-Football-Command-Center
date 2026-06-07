@@ -3,7 +3,7 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
 import { getState } from '../store.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
+import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle, sleeperHandoff } from './components.js';
 
 const local = { leagueId: null, pos: 'ALL', q: '', onlyAlerts: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -80,7 +80,8 @@ async function load(leagueId) {
     : null;
 
   out.appendChild(div({ class: 'card fa-controls' },
-    div({ class: 'fa-controls-top' }, faabNode, threshold ? span({ class: 'muted small' }, `Alert threshold: ${threshold}`) : null),
+    div({ class: 'fa-controls-top' }, faabNode, sleeperHandoff('Waivers in Sleeper', { leagueId, section: 'players', small: true })),
+    threshold ? div({ class: 'muted small' }, `Alert threshold: ${threshold}`) : null,
     div({ class: 'fa-controls-row' }, search, posSel),
     alertToggle ? div({ class: 'fa-controls-row' }, alertToggle) : null,
   ));
@@ -95,7 +96,7 @@ async function load(leagueId) {
     mount(listHost,
       div({ class: 'muted small fa-count' }, `${rows.length} available${rows.length > MAX_LIST ? ` (showing top ${MAX_LIST})` : ''}`),
       capped.length
-        ? div({ class: 'card' }, div({ class: 'list' }, ...capped.map(faRow)))
+        ? div({ class: 'card' }, div({ class: 'list' }, ...capped.map((p) => faRow(p, leagueId))))
         : emptyBlock('No matching free agents.'),
     );
   }
@@ -103,13 +104,14 @@ async function load(leagueId) {
   return out;
 }
 
-function faRow(p) {
+function faRow(p, leagueId) {
   return div({ class: 'player-row' },
     div({ class: 'pr-main' },
       span({ class: 'pr-name' }, p.name),
       span({ class: 'pr-meta muted small' }, [p.team, p.positions.join('/')].filter(Boolean).join(' · ')),
     ),
     div({ class: 'row-badges' }, byeBadge(p.onBye, p.byeWeek), injuryBadge(p.injuryStatus), rankBadge(p.rank)),
+    sleeperHandoff('', { leagueId, section: 'players', copyText: p.name, small: true }),
   );
 }
 

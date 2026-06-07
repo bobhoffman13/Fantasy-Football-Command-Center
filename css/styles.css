@@ -86,6 +86,8 @@ body {
 .view, .view-area { display: block; }
 .subview-host, .view-body { margin-top: 4px; }
 .section-title { display: flex; align-items: baseline; justify-content: space-between; font-weight: 700; margin-bottom: 10px; }
+.card-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.card-head-row .section-title { margin-bottom: 0; flex: 1; }
 .section-sub { font-weight: 400; font-size: 12px; color: var(--muted); }
 .muted { color: var(--muted); }
 .small { font-size: 12px; }
@@ -103,6 +105,10 @@ body {
 .btn-primary:active { background: var(--primary-press); }
 .btn-danger { background: #3a1620; border-color: #6e2638; color: #ff9d9d; }
 .btn-sm { padding: 7px 10px; min-height: 36px; font-size: 13px; }
+a.btn, .btn-link { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.ext-arrow { font-size: 0.9em; opacity: .8; }
+.row-handoff { flex: 0 0 auto; padding: 6px 9px; min-height: 32px; font-size: 12px; }
+.handoff-bar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
 .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .btn-row.wrap { flex-wrap: wrap; }
 

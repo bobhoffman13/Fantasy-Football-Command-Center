@@ -1,6 +1,6 @@
 // Shared UI building blocks used across views.
 
-import { el, div, span, btn, mount } from '../lib/dom.js';
+import { el, div, span, btn, mount, copyToClipboard } from '../lib/dom.js';
 import { tierForRank, LOW_MATCH_THRESHOLD } from '../data/constants.js';
 import { getState, setSettings, updateMap } from '../store.js';
 
@@ -60,6 +60,37 @@ export function emptyBlock(text) {
 
 export function sectionTitle(text, sub) {
   return div({ class: 'section-title' }, span({}, text), sub ? span({ class: 'section-sub' }, sub) : null);
+}
+
+// --- Sleeper deep-link handoffs ---
+// Sleeper's web app is at sleeper.com/leagues/{id}/<section>; on iOS these open
+// the native app via universal links (else the logged-in web app, which can also
+// set lineups). We render an <a> (reliable to open from a standalone PWA) and
+// optionally copy a helper string (e.g. a player name to paste into search).
+const SLEEPER_SECTIONS = {
+  team: 'team',
+  matchup: 'matchup',
+  players: 'players',
+  transactions: 'transactions',
+  league: 'team',
+};
+
+export function sleeperUrl(leagueId, section = 'team') {
+  const seg = SLEEPER_SECTIONS[section] || 'team';
+  return `https://sleeper.com/leagues/${leagueId}/${seg}`;
+}
+
+// label: button text. leagueId + section: where to land. copyText: optional string
+// copied on tap. primary/small: styling. Returns an anchor styled as a button.
+export function sleeperHandoff(label, { leagueId, section = 'team', copyText, primary = false, small = false } = {}) {
+  const cls = ['btn', 'btn-link', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
+  return el('a', {
+    href: sleeperUrl(leagueId, section),
+    target: '_blank',
+    rel: 'noopener',
+    class: cls,
+    onclick: () => { if (copyText) copyToClipboard(copyText); },
+  }, label, span({ class: 'ext-arrow' }, '↗'));
 }
 
 // Shared Pushover credentials card. Used by both Setup and Waiver Alerts so the

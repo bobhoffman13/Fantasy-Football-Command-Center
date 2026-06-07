@@ -4,7 +4,7 @@ import { getState, updateMap } from '../store.js';
 import { getLeagueUsers, getRosters } from '../api/sleeper.js';
 import { ownerDisplayName } from '../lib/league.js';
 import { MESSAGE_TEMPLATES, AUTO_TOKENS } from '../data/templates.js';
-import { leagueSelector, asyncRegion, sectionTitle, emptyBlock } from './components.js';
+import { leagueSelector, asyncRegion, sectionTitle, emptyBlock, sleeperHandoff } from './components.js';
 import { navigate } from '../router.js';
 
 const COMMISH_TABS = [{ id: 'messages', label: 'Messages' }, { id: 'dues', label: 'Dues & Payouts' }];
@@ -89,6 +89,7 @@ function renderMessages(host) {
         if (left.length && !confirm(`There are still ${left.length} unfilled placeholder(s): ${left.join(' ')}.\n\nCopy anyway?`)) return;
         copyToClipboard(msgState.body);
       } }, 'Copy message'),
+      sleeperHandoff('Open Sleeper', { leagueId: msgState.leagueId, section: 'team' }),
       btn({ class: 'btn', onclick: () => { regenerateBody(); renderMessages(host); } }, 'Reset to template'),
     ));
   root.appendChild(card);

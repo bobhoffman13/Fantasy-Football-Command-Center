@@ -4,7 +4,7 @@ import { getMatchups } from '../api/sleeper.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
 import { isActiveSeason, fmtPoints } from '../lib/format.js';
 import { playerName, playerPositions } from '../lib/players.js';
-import { leagueSelector, asyncRegion, emptyBlock, sectionTitle } from './components.js';
+import { leagueSelector, asyncRegion, emptyBlock, sectionTitle, sleeperHandoff } from './components.js';
 import { getState } from '../store.js';
 
 const local = { leagueId: null, week: null };
@@ -73,6 +73,8 @@ async function load(leagueId, week) {
     teamScore(oppName, oppPts, opp ? !iWin : false),
   ));
 
+  out.appendChild(div({ class: 'handoff-bar' },
+    sleeperHandoff('Open matchup in Sleeper', { leagueId, section: 'matchup', small: true })));
   out.appendChild(div({ class: 'note muted small' }, 'Note: Sleeper\'s API provides team totals only — no per-player point breakdowns.'));
 
   out.appendChild(div({ class: 'lineup-cols' },

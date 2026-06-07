@@ -1,5 +1,5 @@
 // App bootstrap, shell, router, and error boundary.
-import { div, span, btn, mount, el, copyToClipboard } from './lib/dom.js';
+import { div, span, btn, mount, el } from './lib/dom.js';
 import { NAV_AREAS } from './data/constants.js';
 import { parseHash, navigate, onRoute } from './router.js';
 import { loadPersisted, getState, setSession, subscribe } from './store.js';
@@ -61,9 +61,10 @@ function buildShell() {
   const app = document.getElementById('app');
   bannerEl = div({ class: 'offline-banner', style: { display: 'none' } });
   headerStatusEl = div({ class: 'header-status' });
-  const sleeperBtn = btn({ class: 'btn btn-sm header-sleeper', title: 'Copy link — paste in Safari (desktop mode)',
-    onclick: () => copyToClipboard('https://sleeper.com', 'Link copied — paste in Safari (needs 1-time desktop-site setup: see Settings)') },
-    'Sleeper', span({ class: 'copy-glyph' }, '⧉'));
+  // Opens the Sleeper app (sleeper.com is a universal link on iOS); on other
+  // platforms it opens the Sleeper web app in a new tab.
+  const sleeperBtn = el('a', { class: 'btn btn-sm header-sleeper', href: 'https://sleeper.com',
+    target: '_blank', rel: 'noopener', title: 'Open Sleeper' }, 'Sleeper');
   const header = el('header', { class: 'app-header' },
     div({ class: 'app-title' }, '🏈 Command Center'),
     div({ class: 'header-right' }, headerStatusEl, sleeperBtn),

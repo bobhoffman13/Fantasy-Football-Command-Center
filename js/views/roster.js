@@ -3,7 +3,7 @@ import { div, span, mount } from '../lib/dom.js';
 import { loadLeagueContext } from '../lib/league.js';
 import { enrichRoster } from '../lib/players.js';
 import { POSITION_ORDER } from '../data/constants.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, sectionTitle, emptyBlock, sleeperHandoff } from './components.js';
+import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, sectionTitle, emptyBlock } from './components.js';
 
 const local = { leagueId: null };
 
@@ -45,8 +45,6 @@ async function load(leagueId) {
   for (const k of Object.keys(groups)) groups[k].sort((a, b) => (a.rank ?? 1e9) - (b.rank ?? 1e9));
 
   const out = div({});
-  out.appendChild(div({ class: 'handoff-bar' },
-    sleeperHandoff('Open team in Sleeper', { leagueId, section: 'team', small: true })));
   out.appendChild(matchDiagnostic(ctx.diagnostic));
 
   // Watch list: rostered players injured or on bye this week.

@@ -5,7 +5,7 @@ import { enrichRoster } from '../lib/players.js';
 import { optimizeLineup } from '../lib/lineup.js';
 import { getState } from '../store.js';
 import { RISK_MODES } from '../data/constants.js';
-import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle, sleeperHandoff } from './components.js';
+import { leagueSelector, asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const local = { leagueId: null };
 
@@ -42,10 +42,7 @@ async function load(leagueId) {
   }
 
   out.appendChild(div({ class: 'card' },
-    div({ class: 'card-head-row' },
-      sectionTitle('Suggested starters'),
-      sleeperHandoff('Set in Sleeper', { leagueId, section: 'team', small: true, primary: true }),
-    ),
+    sectionTitle('Suggested starters'),
     div({ class: 'list' }, ...starters.map(slotRow)),
   ));
 

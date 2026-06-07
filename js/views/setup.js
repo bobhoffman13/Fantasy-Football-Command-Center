@@ -22,8 +22,6 @@ export function render(container) {
 
   root.appendChild(connectSection(settings, session, rerender));
 
-  root.appendChild(sleeperLinksTip());
-
   if (session.leagues.length) {
     root.appendChild(leagueConfigSection(settings, session, rerender));
   }
@@ -75,35 +73,6 @@ function connectSection(settings, session, rerender) {
   );
   if (settings.userId) card.appendChild(div({ class: 'muted small' }, `Connected as ${settings.username} · ${session.leagues.length} leagues`));
   return card;
-}
-
-// --- Sleeper links tip ---
-// iOS is hostile to Sleeper league links: tapping one opens the app (no
-// per-league deep-link) and pasting one into Safari makes sleeper.com redirect
-// to the App Store *instantly* on load — so fast the page never stays in Safari
-// and the per-page "aA → Request Desktop Website" toggle is unreachable (the
-// address bar is empty behind the App Store prompt). The only fix is to put
-// Safari in desktop mode BEFORE sleeper.com loads, via the global iOS toggle,
-// then pin that preference to sleeper.com so the redirect is defeated for good.
-function sleeperLinksTip() {
-  const step = (...c) => el('li', null, ...c);
-  return div({ class: 'card' }, sectionTitle('Opening a league in Sleeper (iPhone)'),
-    div({ class: 'muted small' },
-      'Sleeper has no mobile website — on a phone, sleeper.com redirects straight to the App Store before the page can even load, which is why the address bar is empty behind that prompt. Beat it by forcing Safari into desktop mode first. ',
-      span({ class: 'tip-strong' }, 'You only do this setup once:')),
-    el('ol', { class: 'tip-steps muted small' },
-      step('iPhone ', span({ class: 'tip-strong' }, 'Settings → Apps → Safari → Request Desktop Website'),
-        ' → turn ', span({ class: 'tip-strong' }, 'All Websites'), ' ON.'),
-      step('Back here, tap a ', span({ class: 'tip-strong' }, 'Sleeper ⧉'),
-        ' button to copy a league link. Open Safari, paste it, go — now it loads the real Sleeper web app, logged in, on your league (no App Store).'),
-      step('On that page tap ', span({ class: 'tip-strong' }, 'aA'), ' → ',
-        span({ class: 'tip-strong' }, 'Website Settings'), ' → turn ON ',
-        span({ class: 'tip-strong' }, '“Request Desktop Website”'), ' for sleeper.com (pins it).'),
-      step('Return to ', span({ class: 'tip-strong' }, 'Settings → Apps → Safari'),
-        ' and turn ', span({ class: 'tip-strong' }, 'All Websites'), ' back OFF, so the rest of your browsing stays normal.')),
-    div({ class: 'muted small' },
-      span({ class: 'tip-strong' }, 'After that: '),
-      'tap a ', span({ class: 'tip-strong' }, 'Sleeper ⧉'), ' button → paste in Safari → it loads your league directly, every time.'));
 }
 
 // --- League config: type, commish, profile assignment ---

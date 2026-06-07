@@ -1,6 +1,6 @@
 // Shared UI building blocks used across views.
 
-import { el, div, span, btn, mount, copyToClipboard } from '../lib/dom.js';
+import { el, div, span, btn, mount } from '../lib/dom.js';
 import { tierForRank, LOW_MATCH_THRESHOLD } from '../data/constants.js';
 import { getState, setSettings, updateMap } from '../store.js';
 
@@ -60,41 +60,6 @@ export function emptyBlock(text) {
 
 export function sectionTitle(text, sub) {
   return div({ class: 'section-title' }, span({}, text), sub ? span({ class: 'section-sub' }, sub) : null);
-}
-
-// --- Sleeper deep-link handoffs ---
-// Sleeper's web app is at sleeper.com/leagues/{id}/<section>; on iOS these open
-// the native app via universal links (else the logged-in web app, which can also
-// set lineups). We render an <a> (reliable to open from a standalone PWA) and
-// optionally copy a helper string (e.g. a player name to paste into search).
-const SLEEPER_SECTIONS = {
-  team: 'team',
-  matchup: 'matchup',
-  players: 'players',
-  transactions: 'transactions',
-  league: 'team',
-};
-
-export function sleeperUrl(leagueId, section = 'team') {
-  const seg = SLEEPER_SECTIONS[section] || 'team';
-  return leagueId ? `https://sleeper.com/leagues/${leagueId}/${seg}` : 'https://sleeper.com';
-}
-
-// Tapping COPIES a link/term to the clipboard (with a toast) so it can be pasted
-// into Safari — the only reliable way to reach a specific Sleeper league on iOS
-// (the app has no deep-link and an installed Home-Screen app can't long-press to
-// Safari). With copyText, copies that term (e.g. a player name) for Sleeper's
-// search; otherwise copies the league/page URL to paste into Safari's address bar.
-export function sleeperHandoff(label, { leagueId, section = 'team', copyText, primary = false, small = false } = {}) {
-  const cls = ['btn', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
-  const onclick = copyText
-    ? () => copyToClipboard(copyText, `Copied “${copyText}” — paste into Sleeper search in Safari`)
-    : () => copyToClipboard(sleeperUrl(leagueId, section), 'Link copied — paste in Safari (needs 1-time desktop-site setup: see Settings)');
-  return btn({
-    class: cls,
-    title: copyText ? 'Copy name for Sleeper search' : 'Copy link — paste in Safari (desktop mode)',
-    onclick,
-  }, label, span({ class: 'copy-glyph' }, '⧉'));
 }
 
 // Shared Pushover credentials card. Used by both Setup and Waiver Alerts so the

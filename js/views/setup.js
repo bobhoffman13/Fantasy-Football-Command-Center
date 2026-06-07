@@ -23,6 +23,7 @@ export function render(container) {
   root.appendChild(connectSection(settings, session, rerender));
 
   if (session.leagues.length) {
+    root.appendChild(deepLinkTestSection(session));
     root.appendChild(leagueConfigSection(settings, session, rerender));
   }
 
@@ -72,6 +73,33 @@ function connectSection(settings, session, rerender) {
     status,
   );
   if (settings.userId) card.appendChild(div({ class: 'muted small' }, `Connected as ${settings.username} · ${session.leagues.length} leagues`));
+  return card;
+}
+
+// --- TEMP: Sleeper deep-link tester -----------------------------------------
+// Throwaway diagnostic. Tapping each candidate tries to open the Sleeper app on
+// a specific league; the user reports which (if any) lands on the right league,
+// then this whole section is removed and the winning format wired into handoffs.
+function deepLinkTestSection(session) {
+  const league = session.leagues[0];
+  const id = league.league_id;
+  const candidates = [
+    ['A', `https://sleeper.com/leagues/${id}`],          // bare universal link (no /section)
+    ['B', `sleeper://`],                                  // does a custom scheme open the app at all?
+    ['C', `sleeper://leagues/${id}`],
+    ['D', `sleeper://league/${id}`],
+  ];
+  const card = div({ class: 'card' }, sectionTitle('TEMP · Deep-link test', 'Find the link that opens the app on the right league'));
+  card.appendChild(div({ class: 'muted small' },
+    `Tap each one. Note which opens the Sleeper app on “${league.name}” (not its homepage), then tell me the letter. If none work, that's a useful answer too.`));
+  const list = div({ class: 'list' });
+  for (const [letter, url] of candidates) {
+    list.appendChild(div({ class: 'list-row' },
+      el('a', { href: url, class: 'btn btn-sm', style: { flex: '0 0 auto' } }, letter),
+      span({ class: 'muted small', style: { wordBreak: 'break-all' } }, url),
+    ));
+  }
+  card.appendChild(list);
   return card;
 }
 

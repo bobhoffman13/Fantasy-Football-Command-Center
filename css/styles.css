@@ -45,6 +45,7 @@ body {
 .header-right { display: flex; align-items: center; gap: 10px; }
 .header-sleeper { min-height: 32px; padding: 6px 11px; font-size: 12px; background: var(--surface-2); }
 .header-status { font-size: 12px; color: var(--muted); }
+.tip-strong { color: var(--text); font-weight: 600; }
 .hs-season { background: var(--surface-2); padding: 4px 10px; border-radius: 20px; }
 
 /* Offline banner */

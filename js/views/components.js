@@ -80,22 +80,18 @@ export function sleeperUrl(leagueId, section = 'team') {
   return leagueId ? `https://sleeper.com/leagues/${leagueId}/${seg}` : 'https://sleeper.com';
 }
 
-// Open Sleeper, preferring the BROWSER. Opening via window.open (a scripted
-// navigation) generally does NOT trigger iOS universal links, so it stays in
-// Safari — where league URLs actually route to the right league. Falls back to
-// a normal navigation if window.open is blocked.
-export function openSleeper(url) {
-  const w = window.open(url, '_blank', 'noopener');
-  if (!w) location.href = url;
-}
-
-// label: button text. leagueId + section: where to land. copyText: optional string
-// copied on tap (e.g. a player name to paste into Sleeper search).
+// A real <a> link. Tapping opens the Sleeper app (which only ever lands on its
+// home screen — it has no league deep-link). Long-pressing gives "Open in New
+// Tab", which opens this URL in Safari, where it lands on the exact league/page.
+// copyText: optional string copied on tap (e.g. a player name to paste into search).
 export function sleeperHandoff(label, { leagueId, section = 'team', copyText, primary = false, small = false } = {}) {
-  const cls = ['btn', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
-  return btn({
+  const cls = ['btn', 'btn-link', primary ? 'btn-primary' : '', small ? 'btn-sm' : ''].filter(Boolean).join(' ');
+  return el('a', {
+    href: sleeperUrl(leagueId, section),
+    target: '_blank',
+    rel: 'noopener',
     class: cls,
-    onclick: () => { if (copyText) copyToClipboard(copyText); openSleeper(sleeperUrl(leagueId, section)); },
+    onclick: () => { if (copyText) copyToClipboard(copyText); },
   }, label, span({ class: 'ext-arrow' }, '↗'));
 }
 

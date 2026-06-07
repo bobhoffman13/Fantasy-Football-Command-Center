@@ -7,6 +7,11 @@ const COLUMN_ALIASES = {
   pos: ['position', 'pos'],
   team: ['team', 'nfl_team', 'tm'],
   score: ['composite_score', 'score', 'pp_score', 'composite', 'value'],
+  // Dedicated "Lifetime Value" columns: a per-player worth used by the Trade
+  // Finder, plus its recent trend. Kept separate from `score` so a generic
+  // "value" column doesn't shadow them.
+  lifetimeValue: ['lifetime_value', 'lifetimevalue', 'lt_value', 'ltv'],
+  lifetimeValueChange: ['lifetime_value_change', 'lifetimevaluechange', 'lt_value_change', 'ltv_change', 'value_change'],
 };
 
 function detectDelimiter(headerLine) {
@@ -39,6 +44,12 @@ function parseLine(line, delim) {
   }
   out.push(cur);
   return out.map((s) => s.trim());
+}
+
+// Strip currency symbols, thousands separators, and stray whitespace so values
+// like "$1,234" or "+12" parse cleanly. Leaves sign, digits, and decimal point.
+function stripNumeric(raw) {
+  return (raw || '').replace(/[^0-9.+-]/g, '');
 }
 
 function normalizeHeader(h) {
@@ -85,12 +96,16 @@ export function parseRankingsCsv(text) {
     const rawRank = colMap.rank != null ? parseInt(cells[colMap.rank], 10) : NaN;
     const rank = Number.isFinite(rawRank) ? rawRank : order; // fall back to row order
     const rawScore = colMap.score != null ? parseFloat(cells[colMap.score]) : NaN;
+    const rawLtv = colMap.lifetimeValue != null ? parseFloat(stripNumeric(cells[colMap.lifetimeValue])) : NaN;
+    const rawLtvChange = colMap.lifetimeValueChange != null ? parseFloat(stripNumeric(cells[colMap.lifetimeValueChange])) : NaN;
     rows.push({
       rank,
       name,
       pos: colMap.pos != null ? (cells[colMap.pos] || '').toUpperCase().trim() : '',
       team: colMap.team != null ? (cells[colMap.team] || '').toUpperCase().trim() : '',
       score: Number.isFinite(rawScore) ? rawScore : null,
+      lifetimeValue: Number.isFinite(rawLtv) ? rawLtv : null,
+      lifetimeValueChange: Number.isFinite(rawLtvChange) ? rawLtvChange : null,
     });
   }
 

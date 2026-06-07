@@ -67,6 +67,7 @@ export const LEAGUE_VIEWS = [
   { id: 'roster', label: 'My Roster' },
   { id: 'matchup', label: 'Matchup' },
   { id: 'freeagents', label: 'Free Agents' },
+  { id: 'tradefinder', label: 'Trade Finder' },
   { id: 'lineup', label: 'Lineup' },
   { id: 'waivers', label: 'Waiver Alerts' },
   { id: 'overview', label: 'Overview' },

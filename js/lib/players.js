@@ -56,6 +56,8 @@ export function enrichPlayer(id, playersMap, rankingLookup, nflState, riskMode) 
     age: p.age ?? null,
     rank: rankRow ? rankRow.rank : null,
     score: rankRow ? rankRow.score : null,
+    lifetimeValue: rankRow && rankRow.lifetimeValue != null ? rankRow.lifetimeValue : null,
+    lifetimeValueChange: rankRow && rankRow.lifetimeValueChange != null ? rankRow.lifetimeValueChange : null,
     injuryStatus,
     byeWeek,
     onBye,

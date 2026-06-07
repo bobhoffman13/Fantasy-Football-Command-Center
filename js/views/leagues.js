@@ -5,11 +5,12 @@ import { navigate } from '../router.js';
 import * as roster from './roster.js';
 import * as matchup from './matchup.js';
 import * as freeagents from './freeagents.js';
+import * as tradefinder from './tradefinder.js';
 import * as lineupview from './lineupview.js';
 import * as waivers from './waivers.js';
 import * as overview from './overview.js';
 
-const VIEW_MAP = { roster, matchup, freeagents, lineup: lineupview, waivers, overview };
+const VIEW_MAP = { roster, matchup, freeagents, tradefinder, lineup: lineupview, waivers, overview };
 
 export function render(container, sub) {
   const active = VIEW_MAP[sub] ? sub : 'roster';

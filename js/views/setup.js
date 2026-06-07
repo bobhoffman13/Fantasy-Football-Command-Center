@@ -180,6 +180,9 @@ function profilesSection(rerender) {
         rerender();
       }, 'btn-primary'),
     ),
+    div({ class: 'muted small' },
+      'Recognized columns: Player, Rank, Position, Team, Value. ',
+      'Add a "Lifetime Value" column (and optionally "Lifetime Value Change") to power the Trade Finder.'),
   ));
   return card;
 }

@@ -37,7 +37,7 @@ export function render(container) {
   // Export
   root.appendChild(div({ class: 'card' },
     sectionTitle('Export alert config'),
-    div({ class: 'muted small' }, 'Download the JSON config and the Node companion script, then run it on your machine to get push alerts for highly-ranked free agents.'),
+    div({ class: 'muted small' }, 'Download the JSON config and the Node companion script, then run it on your machine to get push alerts for highly-ranked free agents — and for any player on your Interest list when they hit free agency. Re-export whenever you change thresholds or your Interest list.'),
     div({ class: 'btn-row' },
       btn({ class: 'btn btn-primary', onclick: exportConfig }, 'Download config JSON'),
       btn({ class: 'btn', onclick: () => copyToClipboard(JSON.stringify(buildAlertConfig(), null, 2)) }, 'Copy JSON'),

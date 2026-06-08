@@ -11,9 +11,9 @@
 
 import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
-import { enrichPlayer } from '../lib/players.js';
 import { getState, getActiveLeagueId } from '../store.js';
 import { getConsensusValues, leagueToConsensusParams, getTePremium } from '../api/fantasycalc.js';
+import { describeWithValue, computeArbitrage } from '../lib/tradevalue.js';
 import { asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
 
 // Cap on how much more valuable a target may be than the player you'd give up.
@@ -50,16 +50,6 @@ function fmtVal(v) {
   return Math.round(v).toLocaleString();
 }
 
-// Attach my ranking-derived fields + public consensus to a player id. teFactor scales
-// TE consensus values to approximate TE premium (1 = no adjustment / not TE premium).
-function describe(id, ctx, consensus, teFactor) {
-  const p = enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode);
-  const c = consensus ? consensus.get(String(id)) || null : null;
-  p.consensus = c;
-  p.consensusValueAdj = c ? c.value * (p.positions.includes('TE') ? teFactor : 1) : null;
-  return p;
-}
-
 async function load(leagueId) {
   const ctx = await loadLeagueContext(leagueId);
   const isDynasty = getState().settings.leagueTypes[leagueId] === 'dynasty';
@@ -75,7 +65,7 @@ async function load(leagueId) {
 
   // My roster, enriched + sorted by Lifetime Value (most valuable first).
   const myPlayers = (ctx.myRoster.players || [])
-    .map((id) => describe(id, ctx, consensus, teFactor))
+    .map((id) => describeWithValue(id, ctx, consensus, teFactor))
     .sort((a, b) => (b.lifetimeValue ?? -Infinity) - (a.lifetimeValue ?? -Infinity));
   const myValued = myPlayers.filter((p) => p.lifetimeValue != null);
 
@@ -90,7 +80,7 @@ async function load(leagueId) {
     if (r.roster_id === myRosterId) continue;
     const owner = ownerDisplayName(ctx.usersById, r.owner_id);
     for (const id of r.players || []) {
-      const t = describe(id, ctx, consensus, teFactor);
+      const t = describeWithValue(id, ctx, consensus, teFactor);
       if (t.lifetimeValue == null) continue;
       t.owner = owner;
       targets.push(t);
@@ -167,23 +157,6 @@ async function load(leagueId) {
   paint();
 
   return out;
-}
-
-// Assigns p.arbDelta (publicRank - yourRank, in spots) to every player that has both
-// a Lifetime Value and a public value, by ranking the shared pool both ways. Returns a
-// threshold (in spots, scaled to pool size) at which a divergence is worth flagging.
-function computeArbitrage(pool) {
-  const rated = pool.filter((p) => p.lifetimeValue != null && p.consensusValueAdj != null);
-  for (const p of pool) p.arbDelta = null;
-  if (rated.length < 4) return Infinity; // too few to compare meaningfully
-
-  const byMine = [...rated].sort((a, b) => b.lifetimeValue - a.lifetimeValue);
-  byMine.forEach((p, i) => { p._lvRank = i + 1; });
-  const byPublic = [...rated].sort((a, b) => b.consensusValueAdj - a.consensusValueAdj);
-  byPublic.forEach((p, i) => { p._pubRank = i + 1; });
-  for (const p of rated) p.arbDelta = p._pubRank - p._lvRank;
-
-  return Math.max(5, Math.ceil(rated.length * 0.05));
 }
 
 function consensusBanner(consensus, params, tePremium, teFactor) {

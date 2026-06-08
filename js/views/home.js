@@ -100,6 +100,7 @@ export function render(container) {
       quick('Matchup', () => navigate('leagues', 'matchup')),
       quick('Free Agents', () => navigate('leagues', 'freeagents')),
       quick('Trade Finder', () => navigate('leagues', 'tradefinder')),
+      quick('Interest', () => navigate('leagues', 'interest')),
       quick('Transactions', () => navigate('leagues', 'transactions')),
       quick('Commish', () => navigate('commish')),
       quick('Tools', () => navigate('tools')),

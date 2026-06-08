@@ -31,6 +31,7 @@ function defaultSettings() {
     duesByLeague: {},     // leagueId -> { amount, paid: { userId: bool } }
     lastSeen: {},         // leagueId -> timestamp
     legacyRankings: { dynasty: null, redraft: null }, // { rows, uploadedAt }
+    interestPlayers: [],  // Sleeper player IDs to watch (availability + trade targets)
   };
 }
 
@@ -111,6 +112,27 @@ export function setGlobalLeague(id) {
   state.settings = { ...state.settings, globalLeagueId: id };
   persistSettings();
   emit('globalLeague'); // league pages re-render on this channel
+}
+
+// --- interest list (watched players) ---
+
+export function getInterestPlayers() {
+  return state.settings.interestPlayers || [];
+}
+
+export function addInterest(id) {
+  const cur = state.settings.interestPlayers || [];
+  if (cur.includes(id)) return;
+  state.settings = { ...state.settings, interestPlayers: [...cur, id] };
+  persistSettings();
+  emit('settings', 'interest');
+}
+
+export function removeInterest(id) {
+  const cur = state.settings.interestPlayers || [];
+  state.settings = { ...state.settings, interestPlayers: cur.filter((x) => x !== id) };
+  persistSettings();
+  emit('settings', 'interest');
 }
 
 // --- profiles (IndexedDB-backed) ---

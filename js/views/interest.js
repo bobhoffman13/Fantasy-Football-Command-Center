@@ -146,10 +146,20 @@ async function load(leagueId) {
         : emptyBlock('None of your interest players are free agents in this league right now.'),
     ));
 
+    // Group trade targets by the opponent who owns them, so when one owner holds
+    // several of your targets we can propose a single bundle deal.
+    const byOwner = new Map();
+    for (const t of tradeFor) {
+      if (!byOwner.has(t.owner)) byOwner.set(t.owner, []);
+      byOwner.get(t.owner).push(t);
+    }
+    const ownerBlocks = [...byOwner.entries()]
+      .sort((a, b) => (b[1].length - a[1].length) || (sumLV(b[1]) - sumLV(a[1]))); // bundles first
+
     node.appendChild(div({ class: 'card' },
       sectionTitle('Trade for', tradeFor.length ? `${tradeFor.length}` : null),
       tradeFor.length
-        ? div({}, ...tradeFor.map((p) => tradeTargetBlock(p, myValued, arbThreshold)))
+        ? div({}, ...ownerBlocks.map(([owner, ts]) => ownerDealBlock(owner, ts, myValued, arbThreshold)))
         : emptyBlock('None of your interest players are on an opponent’s roster here.'),
     ));
 
@@ -183,39 +193,57 @@ async function load(leagueId) {
       onclick: () => { removeInterest(id); paintInterest(); paintSearch(); } }, '×');
   }
 
-  // A trade target: the player + a recommended offer from your roster.
-  function tradeTargetBlock(target, myValued, threshold) {
-    const buyLow = threshold !== Infinity && target.arbDelta != null && target.arbDelta >= threshold;
-    const head = div({ class: 'player-row' },
-      div({ class: 'pr-main' },
-        span({ class: 'pr-name' }, target.name),
-        span({ class: 'pr-meta muted small' }, [target.team, target.positions.join('/'), `owned by ${target.owner}`, target.lifetimeValue != null ? `LV ${fmtVal(target.lifetimeValue)}` : null].filter(Boolean).join(' · ')),
-      ),
-      div({ class: 'row-badges' },
-        buyLow ? span({ class: 'badge arb-buy', title: 'You value this player higher than the public — the owner may sell lower' }, 'Buy-low') : null,
-        rankBadge(target.rank),
-        removeBtn(target.playerId),
-      ),
-    );
+  // A deal with one opponent: the interest player(s) you'd acquire from them, plus a
+  // single recommended offer from your roster sized to their combined Lifetime Value.
+  function ownerDealBlock(owner, targets, myValued, threshold) {
+    targets.sort((a, b) => (b.lifetimeValue ?? -1) - (a.lifetimeValue ?? -1));
+    const valued = targets.filter((t) => t.lifetimeValue != null);
+    const combinedLV = sumLV(valued);
+    const isBundle = valued.length >= 2;
 
-    const offer = suggestOffer(target, myValued, threshold);
-    let rec;
-    if (target.lifetimeValue == null) {
-      rec = div({ class: 'int-offer muted small' }, 'No Lifetime Value for this player — can’t size an offer.');
-    } else if (!offer) {
-      rec = div({ class: 'int-offer muted small' }, 'No clean match on your roster — you’d likely need a larger package or a pick.');
-    } else {
-      const names = offer.players.map((p) => `${p.name} (LV ${fmtVal(p.lifetimeValue)})`).join(' + ');
-      const sells = offer.players.filter((p) => threshold !== Infinity && p.arbDelta != null && p.arbDelta <= -threshold);
-      const diff = offer.total - target.lifetimeValue;
-      const diffStr = diff >= 0 ? `+${fmtVal(diff)} over` : `${fmtVal(-diff)} under`;
-      rec = div({ class: 'int-offer' },
-        div({}, span({ class: 'int-offer-label' }, 'Offer: '), span({}, names)),
-        div({ class: 'muted small' }, `Package LV ${fmtVal(offer.total)} · ${diffStr} their value`
-          + (sells.length ? ` · selling high on ${sells.map((p) => p.name).join(', ')}` : '')),
+    const getRows = targets.map((t) => {
+      const buyLow = threshold !== Infinity && t.arbDelta != null && t.arbDelta >= threshold;
+      return div({ class: 'player-row' },
+        div({ class: 'pr-main' },
+          span({ class: 'pr-name' }, t.name),
+          span({ class: 'pr-meta muted small' }, [t.team, t.positions.join('/'), t.lifetimeValue != null ? `LV ${fmtVal(t.lifetimeValue)}` : null].filter(Boolean).join(' · ')),
+        ),
+        div({ class: 'row-badges' },
+          buyLow ? span({ class: 'badge arb-buy', title: 'You value this player higher than the public — the owner may sell lower' }, 'Buy-low') : null,
+          rankBadge(t.rank),
+          removeBtn(t.playerId),
+        ),
       );
+    });
+
+    let rec;
+    if (!valued.length) {
+      rec = div({ class: 'int-offer muted small' }, 'No Lifetime Value for these players — can’t size an offer.');
+    } else {
+      const offer = suggestPackageForValue(combinedLV, myValued, isBundle ? 4 : 2);
+      if (!offer) {
+        rec = div({ class: 'int-offer muted small' }, 'No clean match on your roster — you’d likely need a larger package or a pick.');
+      } else {
+        const names = offer.players.map((p) => `${p.name} (LV ${fmtVal(p.lifetimeValue)})`).join(' + ');
+        const sells = offer.players.filter((p) => threshold !== Infinity && p.arbDelta != null && p.arbDelta <= -threshold);
+        const diff = offer.total - combinedLV;
+        const diffStr = diff >= 0 ? `+${fmtVal(diff)} over` : `${fmtVal(-diff)} under`;
+        rec = div({ class: 'int-offer' },
+          div({}, span({ class: 'int-offer-label' }, isBundle ? 'Offer (one deal): ' : 'Offer: '), span({}, names)),
+          div({ class: 'muted small' }, `Package LV ${fmtVal(offer.total)} · ${diffStr} their ${isBundle ? 'combined ' : ''}value`
+            + (sells.length ? ` · selling high on ${sells.map((p) => p.name).join(', ')}` : '')),
+        );
+      }
     }
-    return div({ class: 'int-target' }, head, rec);
+
+    return div({ class: 'int-target' },
+      div({ class: 'int-deal-head' },
+        span({ class: 'int-offer-label' }, isBundle ? `Bundle from ${owner} — get ${valued.length}` : `From ${owner}`),
+        isBundle ? span({ class: 'muted small' }, `combined LV ${fmtVal(combinedLV)}`) : null,
+      ),
+      div({ class: 'list' }, ...getRows),
+      rec,
+    );
   }
 
   // First paint.
@@ -224,30 +252,37 @@ async function load(leagueId) {
   return out;
 }
 
-// Find the cheapest fair offer (single player, else best 2-player package) whose total
-// Lifetime Value lands in [OFFER_MIN, OFFER_MAX] * target value.
-function suggestOffer(target, myValued, threshold) {
-  const t = target.lifetimeValue;
-  if (t == null) return null;
-  const lo = t * OFFER_MIN, hi = t * OFFER_MAX;
-  const pool = myValued.filter((p) => p.playerId !== target.playerId);
+const sumLV = (arr) => arr.reduce((s, p) => s + (p.lifetimeValue || 0), 0);
 
-  // Single player in band — prefer the smallest total at/above the target (least overpay).
-  const singles = pool.filter((p) => p.lifetimeValue >= lo && p.lifetimeValue <= hi)
-    .sort((a, b) => a.lifetimeValue - b.lifetimeValue);
-  const fairSingle = singles.find((p) => p.lifetimeValue >= t) || singles[singles.length - 1];
-  if (fairSingle) return { players: [fairSingle], total: fairSingle.lifetimeValue };
+// Cheapest fair offer for a target value: the fewest players whose combined Lifetime
+// Value lands in [OFFER_MIN, OFFER_MAX] * targetValue, and among those the least overpay.
+// Searches packages of 1..maxPlayers from your roster.
+function suggestPackageForValue(targetValue, myValued, maxPlayers) {
+  if (targetValue == null || targetValue <= 0) return null;
+  const lo = targetValue * OFFER_MIN, hi = targetValue * OFFER_MAX;
+  // No single piece can exceed the ceiling; sorting desc lets us prune deep branches.
+  const pool = myValued.filter((p) => p.lifetimeValue <= hi).sort((a, b) => b.lifetimeValue - a.lifetimeValue);
 
-  // Otherwise the cheapest 2-player package whose sum lands in band.
-  let best = null;
-  for (let i = 0; i < pool.length; i++) {
-    for (let j = i + 1; j < pool.length; j++) {
-      const sum = pool[i].lifetimeValue + pool[j].lifetimeValue;
-      if (sum < lo || sum > hi) continue;
-      if (!best || sum < best.total) best = { players: [pool[i], pool[j]], total: sum };
-    }
+  for (let k = 1; k <= maxPlayers; k++) {
+    let best = null;
+    const combo = [];
+    const search = (start, sum) => {
+      if (combo.length === k) {
+        if (sum >= lo && sum <= hi && (!best || sum < best.total)) best = { players: combo.slice(), total: sum };
+        return;
+      }
+      for (let i = start; i < pool.length; i++) {
+        const next = sum + pool[i].lifetimeValue;
+        if (next > hi) continue; // later (smaller) players may still fit
+        combo.push(pool[i]);
+        search(i + 1, next);
+        combo.pop();
+      }
+    };
+    search(0, 0);
+    if (best) return best; // prefer the smallest viable package
   }
-  return best;
+  return null;
 }
 
 function debounce(fn, ms) {

@@ -47,36 +47,49 @@ async function main() {
   if (!cfg) { console.error('Could not read ' + CONFIG_PATH); process.exit(1); }
   const state = await readJson(STATE_PATH, { alerted: {} });
   const players = await getPlayers();
+  const interest = cfg.interest || [];
 
   for (const league of cfg.leagues || []) {
-    const rankings = league.rankings || {};
-    if (!Object.keys(rankings).length) { console.log('No rankings for ' + league.name + ' — skipping.'); continue; }
     const rosters = await getJson(BASE + '/league/' + league.leagueId + '/rosters');
     const rostered = new Set();
     for (const r of rosters) for (const id of r.players || []) rostered.add(id);
 
     const hits = [];
-    for (const [pid, rank] of Object.entries(rankings)) {
-      if (rank > league.threshold) continue;
-      if (rostered.has(pid)) continue;
-      const key = league.leagueId + ':' + pid;
-      if (state.alerted[key]) continue; // already alerted while available
-      const p = players[pid] || {};
-      const name = p.full_name || pid;
-      const pos = (p.fantasy_positions || []).join('/');
-      hits.push({ pid, key, rank, name, pos });
+
+    // Rank-based free-agent alerts (only when this league has rankings + a threshold).
+    const rankings = league.rankings || {};
+    if (league.threshold && Object.keys(rankings).length) {
+      for (const [pid, rank] of Object.entries(rankings)) {
+        if (rank > league.threshold) continue;
+        if (rostered.has(pid)) continue;
+        const key = league.leagueId + ':' + pid;
+        if (state.alerted[key]) continue; // already alerted while available
+        const p = players[pid] || {};
+        hits.push({ key, rank, name: p.full_name || pid, pos: (p.fantasy_positions || []).join('/'), interest: false });
+      }
     }
+
+    // Interest-list alerts: any watched player available in this league.
+    for (const it of interest) {
+      if (rostered.has(it.id)) continue;
+      const key = league.leagueId + ':int:' + it.id;
+      if (state.alerted[key]) continue;
+      const p = players[it.id] || {};
+      hits.push({ key, rank: null, name: it.name || p.full_name || it.id, pos: it.pos || (p.fantasy_positions || []).join('/'), interest: true });
+    }
+
     // Clear "alerted" flags for players who got rostered again, so future drops re-alert.
     for (const key of Object.keys(state.alerted)) {
       if (!key.startsWith(league.leagueId + ':')) continue;
-      const pid = key.split(':')[1];
+      const pid = key.split(':').pop();
       if (rostered.has(pid)) delete state.alerted[key];
     }
 
-    hits.sort((a, b) => a.rank - b.rank);
+    // Interest alerts first, then ranked FAs by rank.
+    hits.sort((a, b) => (a.interest === b.interest ? ((a.rank ?? 1e9) - (b.rank ?? 1e9)) : (a.interest ? -1 : 1)));
     for (const h of hits) {
-      const title = league.name + ' — FA Alert';
-      const msg = '#' + h.rank + ' ' + h.name + ' (' + h.pos + ') is available!';
+      const title = league.name + (h.interest ? ' — Interest Alert' : ' — FA Alert');
+      const msg = (h.interest ? '⭐ ' : '#' + h.rank + ' ') + h.name + ' (' + h.pos + ') is available!';
       await pushover(cfg.pushover?.token, cfg.pushover?.user, title, msg);
       state.alerted[h.key] = Date.now();
       console.log('ALERT ' + title + ': ' + msg);

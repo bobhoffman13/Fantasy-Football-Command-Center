@@ -235,6 +235,46 @@ export async function clearAllData() {
   emit('settings', 'profiles', 'session', 'activity', 'leagues');
 }
 
+// --- backup / restore ---
+// A portable snapshot of everything the user configured: settings (account, league
+// config, thresholds, dues, interest, credentials) + ranking profiles. The big player
+// cache is intentionally excluded — it's just re-downloaded from Sleeper.
+export function exportBackup() {
+  return {
+    app: 'ffcc',
+    kind: 'backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    settings: state.settings,
+    profiles: state.profiles,
+  };
+}
+
+// Restore from a parsed backup object. Overwrites current settings + profiles. Settings
+// are merged onto defaults so older/newer backups still get every expected key.
+export async function importBackup(data) {
+  if (!data || data.app !== 'ffcc' || !data.settings || typeof data.settings !== 'object') {
+    throw new Error('That doesn’t look like an FFCC backup file.');
+  }
+  state.settings = { ...defaultSettings(), ...data.settings };
+  persistSettings();
+  state.profiles = Array.isArray(data.profiles) ? data.profiles : [];
+  await persistProfiles();
+  emit('settings', 'profiles', 'interest');
+}
+
+// Ask the browser to keep our storage durable (resists eviction, esp. on iOS Safari).
+// Best-effort: returns whether storage is now persisted. Never throws.
+export async function requestPersistentStorage() {
+  try {
+    if (!navigator.storage?.persist) return false;
+    if (navigator.storage.persisted && await navigator.storage.persisted()) return true;
+    return await navigator.storage.persist();
+  } catch {
+    return false;
+  }
+}
+
 // Resolve the ranking lookup source for a league: assigned profile, else legacy by type.
 export function resolveRankingForLeague(leagueId) {
   const s = state.settings;

@@ -144,10 +144,10 @@ async function main() {
       if (rostered.has(pid)) delete state.alerted[key];
     }
 
-    // Interest alerts first, then ranked FAs by rank.
+    // Target alerts first, then ranked FAs by rank.
     hits.sort((a, b) => (a.interest === b.interest ? ((a.rank ?? 1e9) - (b.rank ?? 1e9)) : (a.interest ? -1 : 1)));
     for (const h of hits) {
-      const title = league.name + (h.interest ? ' — Interest Alert' : ' — FA Alert');
+      const title = league.name + (h.interest ? ' — Target Alert' : ' — FA Alert');
       const msg = (h.interest ? '⭐ ' : '#' + h.rank + ' ') + h.name + ' (' + h.pos + ') is available!';
       await pushover(cfg.pushover?.token, cfg.pushover?.user, title, msg);
       state.alerted[h.key] = Date.now();

@@ -232,7 +232,7 @@ function backupSection() {
   card.appendChild(div({ class: 'muted small' },
     'Your data lives only in this browser. Download a backup to move it to another device — '
     + 'or to restore it after clearing data or switching browsers. The file includes your settings, '
-    + 'league config, ranking profiles, dues, interest list, and Pushover credentials, so keep it private.'));
+    + 'league config, ranking profiles, dues, targets list, and Pushover credentials, so keep it private.'));
   card.appendChild(div({ class: 'btn-row' },
     btn({ class: 'btn btn-primary', onclick: () => {
       const date = new Date().toISOString().slice(0, 10);

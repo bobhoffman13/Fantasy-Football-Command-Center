@@ -1,6 +1,6 @@
 // Shared trade-value helpers: overlay your Lifetime Value + public consensus onto
 // players, and score market arbitrage. Used by the Trade Finder and Interest views so
-// both reason about value identically.
+// both reason about value identically. (Targets view = formerly "Interest".)
 
 import { enrichPlayer } from './players.js';
 

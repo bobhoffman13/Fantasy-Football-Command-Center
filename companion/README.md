@@ -2,7 +2,7 @@
 
 A tiny Node script that watches your Sleeper leagues and sends a **Pushover** notification
 when a highly-ranked free agent (per *your* rankings) becomes available — and when any
-player on your **Interest list** hits free agency in any of your leagues.
+player on your **Targets list** hits free agency in any of your leagues.
 
 It runs on your own machine — the web app never needs a server.
 
@@ -90,11 +90,12 @@ they stay available. If a player gets rostered and later dropped again, you'll b
 ```
 
 - `threshold` — alert when an available player's rank is **≤** this number. May be `null`
-  for a league that's only included to watch your Interest list.
+  for a league that's only included to watch your Targets list.
 - `rankings` — `{ sleeperPlayerId: rank }` resolved from your assigned ranking profile.
   If empty, no rank-based alerts fire for that league (load the league once in the app so its
   players cache, then re-export).
-- `interest` — players from your **Interest list**. The poller alerts (with a ⭐) whenever one
+- `interest` — players from your **Targets list** (the config field keeps its original name
+  for compatibility). The poller alerts (with a ⭐) whenever one
   of them is *not* rostered in a league, i.e. has hit free agency.
 
 > Your Pushover credentials live in this file. Keep it private; don't commit it.

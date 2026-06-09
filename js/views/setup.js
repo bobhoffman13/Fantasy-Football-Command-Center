@@ -2,7 +2,7 @@
 import { div, span, btn, el, mount, toast } from '../lib/dom.js';
 import {
   getState, setSettings, setSession, updateMap, getProfiles, addProfile, updateProfile, deleteProfile,
-  clearAllData,
+  clearAllData, exportBackup, importBackup,
 } from '../store.js';
 import { getUser, getLeagues, getPlayers } from '../api/sleeper.js';
 import { parseRankingsCsv } from '../lib/csv.js';
@@ -30,6 +30,7 @@ export function render(container) {
   root.appendChild(legacySection(rerender));
   root.appendChild(riskSection(settings, rerender));
   root.appendChild(notifCredsCard());
+  root.appendChild(backupSection());
   root.appendChild(dangerSection(rerender));
 
   mount(container, root);
@@ -224,6 +225,46 @@ function riskSection(settings, rerender) {
   return card;
 }
 
+// --- Backup & restore ---
+
+function backupSection() {
+  const card = div({ class: 'card' }, sectionTitle('Backup & restore', 'Save everything to a file you control'));
+  card.appendChild(div({ class: 'muted small' },
+    'Your data lives only in this browser. Download a backup to move it to another device — '
+    + 'or to restore it after clearing data or switching browsers. The file includes your settings, '
+    + 'league config, ranking profiles, dues, interest list, and Pushover credentials, so keep it private.'));
+  card.appendChild(div({ class: 'btn-row' },
+    btn({ class: 'btn btn-primary', onclick: () => {
+      const date = new Date().toISOString().slice(0, 10);
+      download(`ffcc-backup-${date}.json`, JSON.stringify(exportBackup(), null, 2));
+      toast('Backup downloaded', 'success');
+    } }, 'Download backup'),
+    fileButton('Restore from backup', async (text) => {
+      let data;
+      try { data = JSON.parse(text); } catch { toast('Could not read that file (invalid JSON).', 'error'); return; }
+      if (!confirm('Restore from backup? This overwrites the settings and ranking profiles currently in this browser.')) return;
+      try {
+        await importBackup(data);
+        clearLookupCache();
+        toast('Backup restored — reloading…', 'success');
+        setTimeout(() => location.reload(), 700);
+      } catch (e) {
+        toast(e?.message || 'Restore failed.', 'error');
+      }
+    }, '', '.json,application/json'),
+  ));
+  return card;
+}
+
+function download(name, text, type = 'application/json') {
+  const blob = new Blob([text], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // --- Danger zone ---
 
 function dangerSection(rerender) {
@@ -242,8 +283,8 @@ function dangerSection(rerender) {
 
 // --- helper: a styled file picker button ---
 
-function fileButton(label, onText, extraClass = '') {
-  const input = el('input', { type: 'file', accept: '.csv,text/csv,text/plain', style: { display: 'none' },
+function fileButton(label, onText, extraClass = '', accept = '.csv,text/csv,text/plain') {
+  const input = el('input', { type: 'file', accept, style: { display: 'none' },
     onchange: async (e) => {
       const file = e.target.files?.[0];
       if (!file) return;

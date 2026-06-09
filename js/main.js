@@ -6,6 +6,7 @@ import { loadPersisted, getState, setSession, subscribe } from './store.js';
 import { getNflState, getLeagues, getPlayers } from './api/sleeper.js';
 import { ensureActivityPolling } from './activity.js';
 import { seasonTypeLabel } from './lib/format.js';
+import { requestPersistentStorage } from './store.js';
 
 import * as home from './views/home.js';
 import * as leagues from './views/leagues.js';
@@ -21,6 +22,7 @@ let currentCleanup = null;
 async function boot() {
   buildShell();
   await loadPersisted();
+  requestPersistentStorage(); // best-effort: keep storage durable (fire and forget)
 
   // Online/offline awareness.
   window.addEventListener('online', () => { setSession({ online: true }); paintBanner(); });

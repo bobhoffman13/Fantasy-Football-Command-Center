@@ -114,25 +114,27 @@ export function setGlobalLeague(id) {
   emit('globalLeague'); // league pages re-render on this channel
 }
 
-// --- interest list (watched players) ---
+// --- targets list (watched players) ---
+// Persisted under the legacy `interestPlayers` key so existing saved lists (and the
+// already-deployed alert companion's config schema) keep working after the UI rename.
 
-export function getInterestPlayers() {
+export function getTargets() {
   return state.settings.interestPlayers || [];
 }
 
-export function addInterest(id) {
+export function addTarget(id) {
   const cur = state.settings.interestPlayers || [];
   if (cur.includes(id)) return;
   state.settings = { ...state.settings, interestPlayers: [...cur, id] };
   persistSettings();
-  emit('settings', 'interest');
+  emit('settings', 'targets');
 }
 
-export function removeInterest(id) {
+export function removeTarget(id) {
   const cur = state.settings.interestPlayers || [];
   state.settings = { ...state.settings, interestPlayers: cur.filter((x) => x !== id) };
   persistSettings();
-  emit('settings', 'interest');
+  emit('settings', 'targets');
 }
 
 // --- profiles (IndexedDB-backed) ---
@@ -237,7 +239,7 @@ export async function clearAllData() {
 
 // --- backup / restore ---
 // A portable snapshot of everything the user configured: settings (account, league
-// config, thresholds, dues, interest, credentials) + ranking profiles. The big player
+// config, thresholds, dues, targets, credentials) + ranking profiles. The big player
 // cache is intentionally excluded — it's just re-downloaded from Sleeper.
 export function exportBackup() {
   return {
@@ -260,7 +262,7 @@ export async function importBackup(data) {
   persistSettings();
   state.profiles = Array.isArray(data.profiles) ? data.profiles : [];
   await persistProfiles();
-  emit('settings', 'profiles', 'interest');
+  emit('settings', 'profiles', 'targets');
 }
 
 // Ask the browser to keep our storage durable (resists eviction, esp. on iOS Safari).

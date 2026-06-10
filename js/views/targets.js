@@ -25,6 +25,7 @@ const OFFER_MIN = 0.95; // an offer may be worth down to 95% of the target…
 const OFFER_MAX = 1.35; // …and up to 135% (a reasonable nudge to land them)
 const REC_POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE']; // Recommended Targets position filter
 const REC_LIMIT = 25; // how many recommendations to show per filter
+const RANK_CAP = 250; // discovery surfaces only show players ranked this high or better
 
 const local = { leagueId: null, q: '', recPos: 'ALL' };
 
@@ -73,15 +74,18 @@ async function load(leagueId) {
   // Stack-ranked value edges across your whole ranking universe (for Recommended Targets).
   const recommended = buildRecommended(ctx, consensus, teFactor, myRosterIds);
 
-  // Lightweight search index: relevant, active players only.
+  // Lightweight search index: active players ranked within the cap only — anyone outside
+  // your top RANK_CAP probably doesn't belong on your roster, so we don't surface them.
   const searchPool = [];
   for (const [id, p] of Object.entries(ctx.players)) {
     if (!p || p.active === false) continue;
     const positions = p.fantasy_positions || (p.position ? [p.position] : []);
     if (!positions.some((pos) => CORE.has(pos))) continue;
+    const rank = ctx.rankingLookup.get(id)?.rank;
+    if (rank == null || rank > RANK_CAP) continue;
     const name = playerName(ctx.players, id);
     if (!name) continue;
-    searchPool.push({ id, name, lower: name.toLowerCase(), pos: positions.join('/'), team: p.team || '' });
+    searchPool.push({ id, name, lower: name.toLowerCase(), pos: positions.join('/'), team: p.team || '', rank });
   }
 
   const out = div({});
@@ -99,7 +103,7 @@ async function load(leagueId) {
     oninput: debounce((e) => { local.q = e.target.value.trim().toLowerCase(); paintSearch(); }, 200),
   });
   out.appendChild(div({ class: 'card' },
-    sectionTitle('Add to targets list', 'Watch players to get a push when they free up'),
+    sectionTitle('Add to targets list', `Search your top ${RANK_CAP} ranked players · get a push when they free up`),
     searchInput,
     resultsHost,
   ));
@@ -144,7 +148,7 @@ async function load(leagueId) {
           : 'Add a "Lifetime Value" column to your rankings (Setup) to get recommendations.');
 
     mount(recHost, div({ class: 'card' },
-      sectionTitle('Recommended targets', 'Biggest value edges — players you rate above the market'),
+      sectionTitle('Recommended targets', `Biggest value edges among your top ${RANK_CAP} — players you rate above the market`),
       filterBar,
       list,
     ));
@@ -162,12 +166,15 @@ async function load(leagueId) {
               span({ class: 'pr-name' }, s.name),
               span({ class: 'pr-meta muted small' }, [s.team, s.pos].filter(Boolean).join(' · ')),
             ),
-            added
-              ? span({ class: 'pill pill-good' }, '✓ Added')
-              : btn({ class: 'btn btn-sm', onclick: () => { addTarget(s.id); paintSearch(); paintTargets(); paintRecommended(); } }, '+ Add'),
+            div({ class: 'row-badges' },
+              rankBadge(s.rank),
+              added
+                ? span({ class: 'pill pill-good' }, '✓ Added')
+                : btn({ class: 'btn btn-sm', onclick: () => { addTarget(s.id); paintSearch(); paintTargets(); paintRecommended(); } }, '+ Add'),
+            ),
           );
         }))
-      : emptyBlock('No matching players.'));
+      : emptyBlock(`No matching players in your top ${RANK_CAP}.`));
   }
 
   function paintTargets() {
@@ -319,6 +326,7 @@ function buildRecommended(ctx, consensus, teFactor, myRosterIds) {
   const pool = [];
   for (const [id, row] of ctx.rankingLookup.entries()) {
     if (!row || row.lifetimeValue == null) continue;
+    if (row.rank == null || row.rank > RANK_CAP) continue; // keep targets to your top tier
     const c = consensus ? consensus.get(String(id)) : null;
     if (!c) continue;
     const positions = playerPositions(ctx.players, id);

@@ -9,6 +9,7 @@ import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBl
 const local = { leagueId: null, pos: 'ALL', q: '', onlyAlerts: false };
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const MAX_LIST = 300;
+const RANK_CAP = 250; // only show free agents ranked this high or better in your rankings
 
 export function render(container) {
   const root = div({ class: 'view' });
@@ -22,34 +23,24 @@ export function render(container) {
   if (local.leagueId) run(() => load(local.leagueId));
 }
 
-const CORE_POSITIONS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
-
 async function load(leagueId) {
   const ctx = await loadLeagueContext(leagueId);
   const rostered = rosteredPlayerIds(ctx.rosters);
   const threshold = getState().settings.thresholds[leagueId] || null;
 
-  // Build the full free-agent pool: every unrostered player, ranked or not.
-  // Ranked players (incl. IDP if in your CSV) are always included; unranked
-  // players are limited to core fantasy positions to keep the list relevant.
+  // Build the free-agent pool: unrostered players ranked within your top RANK_CAP.
+  // Anyone ranked below that (or absent from your rankings) probably doesn't belong on
+  // your roster, so we leave them off the list.
   const pool = [];
   for (const id of Object.keys(ctx.players)) {
     if (rostered.has(id)) continue;
     const p = ctx.players[id];
     if (!p || p.active === false) continue;
-    const positions = p.fantasy_positions || (p.position ? [p.position] : []);
-    if (!positions.length) continue;
-    const ranked = ctx.rankingLookup.has(id);
-    if (!ranked && !positions.some((pos) => CORE_POSITIONS.has(pos))) continue;
+    const rankRow = ctx.rankingLookup.get(id);
+    if (!rankRow || rankRow.rank == null || rankRow.rank > RANK_CAP) continue;
     pool.push(enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode));
   }
-  // Ranked first (by rank), then unranked alphabetically.
-  pool.sort((a, b) => {
-    const au = a.rank == null, bu = b.rank == null;
-    if (au !== bu) return au ? 1 : -1;
-    if (!au) return a.rank - b.rank;
-    return a.name.localeCompare(b.name);
-  });
+  pool.sort((a, b) => a.rank - b.rank);
 
   // FAAB / waiver indicator.
   const lset = ctx.league?.settings || {};
@@ -85,6 +76,7 @@ async function load(leagueId) {
     threshold ? div({ class: 'muted small' }, `Alert threshold: ${threshold}`) : null,
     div({ class: 'fa-controls-row' }, search, posSel),
     alertToggle ? div({ class: 'fa-controls-row' }, alertToggle) : null,
+    div({ class: 'muted small' }, `Showing free agents ranked in your top ${RANK_CAP}.`),
   ));
   out.appendChild(listHost);
 

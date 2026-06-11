@@ -32,6 +32,7 @@ function defaultSettings() {
     lastSeen: {},         // leagueId -> timestamp
     legacyRankings: { dynasty: null, redraft: null }, // { rows, uploadedAt }
     interestPlayers: [],  // Sleeper player IDs to watch (availability + trade targets)
+    forSale: [],          // your player IDs flagged willing-to-sell (prioritized in trade recs)
   };
 }
 
@@ -135,6 +136,26 @@ export function removeTarget(id) {
   state.settings = { ...state.settings, interestPlayers: cur.filter((x) => x !== id) };
   persistSettings();
   emit('settings', 'targets');
+}
+
+// --- trade block (your players you're willing to sell) ---
+// Flagged players are prioritized (not required) when recommending the package you'd
+// give up in a trade.
+
+export function getForSale() {
+  return state.settings.forSale || [];
+}
+
+export function isForSale(id) {
+  return (state.settings.forSale || []).includes(id);
+}
+
+export function toggleForSale(id) {
+  const cur = state.settings.forSale || [];
+  const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+  state.settings = { ...state.settings, forSale: next };
+  persistSettings();
+  emit('settings', 'forSale');
 }
 
 // --- profiles (IndexedDB-backed) ---

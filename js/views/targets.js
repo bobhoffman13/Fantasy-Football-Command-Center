@@ -14,7 +14,7 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { navigate } from '../router.js';
 import { loadLeagueContext, ownerDisplayName, rosteredPlayerIds } from '../lib/league.js';
 import { playerName, playerPositions } from '../lib/players.js';
-import { getState, getActiveLeagueId, getTargets, addTarget, removeTarget } from '../store.js';
+import { getState, getActiveLeagueId, getTargets, addTarget, removeTarget, isForSale } from '../store.js';
 import { getConsensusValues, leagueToConsensusParams, getTePremium } from '../api/fantasycalc.js';
 import { describeWithValue, computeArbitrage } from '../lib/tradevalue.js';
 import { asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
@@ -128,7 +128,7 @@ async function load(leagueId) {
     const list = filtered.length
       ? div({ class: 'list' }, ...filtered.map((p) => {
           const added = targeted.has(p.id);
-          return div({ class: 'player-row' },
+          return div({ class: 'player-row target-row' },
             div({ class: 'pr-main' },
               span({ class: 'pr-name' }, p.name),
               span({ class: 'pr-meta muted small' },
@@ -161,7 +161,7 @@ async function load(leagueId) {
     mount(resultsHost, matches.length
       ? div({ class: 'list' }, ...matches.map((s) => {
           const added = targeted.has(s.id);
-          return div({ class: 'player-row' },
+          return div({ class: 'player-row target-row' },
             div({ class: 'pr-main' },
               span({ class: 'pr-name' }, s.name),
               span({ class: 'pr-meta muted small' }, [s.team, s.pos].filter(Boolean).join(' · ')),
@@ -237,7 +237,7 @@ async function load(leagueId) {
   }
 
   function targetRow(p, { badge = null, action = null } = {}) {
-    return div({ class: 'player-row' },
+    return div({ class: 'player-row target-row' },
       div({ class: 'pr-main' },
         span({ class: 'pr-name' }, p.name),
         span({ class: 'pr-meta muted small' }, [p.team, p.positions.join('/'), p.lifetimeValue != null ? `LV ${fmtVal(p.lifetimeValue)}` : null].filter(Boolean).join(' · ')),
@@ -266,7 +266,7 @@ async function load(leagueId) {
 
     const getRows = targets.map((t) => {
       const buyLow = threshold !== Infinity && t.arbDelta != null && t.arbDelta >= threshold;
-      return div({ class: 'player-row' },
+      return div({ class: 'player-row target-row' },
         div({ class: 'pr-main' },
           span({ class: 'pr-name' }, t.name),
           span({ class: 'pr-meta muted small' }, [t.team, t.positions.join('/'), t.lifetimeValue != null ? `LV ${fmtVal(t.lifetimeValue)}` : null].filter(Boolean).join(' · ')),
@@ -287,7 +287,7 @@ async function load(leagueId) {
       if (!offer) {
         rec = div({ class: 'int-offer muted small' }, 'No clean match on your roster — you’d likely need a larger package or a pick.');
       } else {
-        const names = offer.players.map((p) => `${p.name} (LV ${fmtVal(p.lifetimeValue)})`).join(' + ');
+        const names = offer.players.map((p) => `${p.name}${isForSale(p.playerId) ? ' 🔖' : ''} (LV ${fmtVal(p.lifetimeValue)})`).join(' + ');
         const sells = offer.players.filter((p) => threshold !== Infinity && p.arbDelta != null && p.arbDelta <= -threshold);
         const diff = offer.total - combinedLV;
         const diffStr = diff >= 0 ? `+${fmtVal(diff)} over` : `${fmtVal(-diff)} under`;
@@ -356,8 +356,9 @@ function buildRecommended(ctx, consensus, teFactor, myRosterIds) {
 }
 
 // Cheapest fair offer for a target value: the fewest players whose combined Lifetime
-// Value lands in [OFFER_MIN, OFFER_MAX] * targetValue, and among those the least overpay.
-// Searches packages of 1..maxPlayers from your roster.
+// Value lands in [OFFER_MIN, OFFER_MAX] * targetValue. Among packages of the same size we
+// prefer ones that move more of your for-sale players (your trade block), then the least
+// overpay. Searches packages of 1..maxPlayers from your roster.
 function suggestPackageForValue(targetValue, myValued, maxPlayers) {
   if (targetValue == null || targetValue <= 0) return null;
   const lo = targetValue * OFFER_MIN, hi = targetValue * OFFER_MAX;
@@ -369,7 +370,12 @@ function suggestPackageForValue(targetValue, myValued, maxPlayers) {
     const combo = [];
     const search = (start, sum) => {
       if (combo.length === k) {
-        if (sum >= lo && sum <= hi && (!best || sum < best.total)) best = { players: combo.slice(), total: sum };
+        if (sum >= lo && sum <= hi) {
+          const sale = combo.reduce((n, p) => n + (isForSale(p.playerId) ? 1 : 0), 0);
+          if (!best || sale > best.sale || (sale === best.sale && sum < best.total)) {
+            best = { players: combo.slice(), total: sum, sale };
+          }
+        }
         return;
       }
       for (let i = start; i < pool.length; i++) {

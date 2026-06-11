@@ -153,6 +153,12 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .pr-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pr-meta { margin-top: 1px; }
 .row-badges { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+/* Dense rows (Targets) carry several controls; let them wrap below the name on narrow
+   screens instead of crushing the player name to an ellipsis. */
+.player-row.target-row { flex-wrap: wrap; row-gap: 6px; }
+.player-row.target-row .pr-main { flex: 1 1 55%; min-width: 140px; }
+.player-row.target-row .pr-name { white-space: normal; }
+.player-row.target-row .row-badges { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Badges & pills */
 .badge {
@@ -346,6 +352,11 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .tf-check-row input { width: 20px; height: 20px; accent-color: var(--primary); flex-shrink: 0; }
 .tf-check-name { flex: 1; min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tf-check-lv { flex-shrink: 0; }
+.tf-check-main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.sell-toggle { flex-shrink: 0; white-space: nowrap; }
+.sell-toggle.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+/* "On the block" marker shown next to a player flagged willing-to-sell. */
+.badge.sale-tag { background: rgba(58,122,254,.16); color: var(--primary); }
 .tf-pkg-label { font-weight: 700; color: var(--text); }
 .tf-gain-num.neg { color: var(--warn); }
 

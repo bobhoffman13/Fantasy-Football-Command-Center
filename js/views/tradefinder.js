@@ -11,7 +11,7 @@
 
 import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, ownerDisplayName } from '../lib/league.js';
-import { getState, getActiveLeagueId } from '../store.js';
+import { getState, getActiveLeagueId, isForSale, toggleForSale } from '../store.js';
 import { getConsensusValues, leagueToConsensusParams, getTePremium } from '../api/fantasycalc.js';
 import { describeWithValue, computeArbitrage } from '../lib/tradevalue.js';
 import { asyncRegion, matchDiagnostic, rankBadge, emptyBlock, sectionTitle } from './components.js';
@@ -48,6 +48,23 @@ export function render(container) {
 function fmtVal(v) {
   if (v == null) return '—';
   return Math.round(v).toLocaleString();
+}
+
+// Inline toggle to flag/unflag a player as willing-to-sell. Lives inside a tf-check-row
+// next to (not inside) the checkbox label, so flagging never toggles the package checkbox.
+function sellToggle(p) {
+  const label = () => (isForSale(p.playerId) ? '🔖 Selling' : 'Sell');
+  const b = btn({
+    class: 'btn btn-sm sell-toggle' + (isForSale(p.playerId) ? ' active' : ''),
+    title: 'Flag this player as willing to sell — prioritized in trade recommendations',
+    onclick: (e) => {
+      e.preventDefault(); e.stopPropagation();
+      toggleForSale(p.playerId);
+      b.classList.toggle('active', isForSale(p.playerId));
+      b.textContent = label();
+    },
+  }, label());
+  return b;
 }
 
 async function load(leagueId) {
@@ -101,8 +118,15 @@ async function load(leagueId) {
   out.appendChild(sellHighBoard(myValued, arbThreshold));
 
   // --- Trade-away picker (multi-select) + results ---
+  // Show players you've flagged willing-to-sell first, and seed the default selection
+  // with your most valuable flagged player so the finder opens on what you want to move.
+  const pickPlayers = [...myValued].sort((a, b) =>
+    (isForSale(b.playerId) - isForSale(a.playerId)) || (b.lifetimeValue - a.lifetimeValue));
   local.selectedIds = local.selectedIds.filter((id) => myValued.some((p) => p.playerId === id));
-  if (!local.selectedIds.length) local.selectedIds = [myValued[0].playerId];
+  if (!local.selectedIds.length) {
+    const firstForSale = pickPlayers.find((p) => isForSale(p.playerId));
+    local.selectedIds = [(firstForSale || myValued[0]).playerId];
+  }
 
   // Click-to-open multi-select (native <details> so it's reliable on touch and the
   // open list flows with the page rather than trapping scroll in a fixed box).
@@ -117,20 +141,23 @@ async function load(leagueId) {
 
   const checklist = el('details', { class: 'tf-multiselect' },
     el('summary', { class: 'tf-ms-summary' }, summaryText),
-    div({ class: 'tf-ms-panel' }, ...myValued.map((p) =>
-      el('label', { class: 'tf-check-row' },
-        el('input', {
-          type: 'checkbox',
-          checked: local.selectedIds.includes(p.playerId),
-          onchange: (e) => {
-            if (e.target.checked) { if (!local.selectedIds.includes(p.playerId)) local.selectedIds.push(p.playerId); }
-            else local.selectedIds = local.selectedIds.filter((id) => id !== p.playerId);
-            updateSummary();
-            paint();
-          },
-        }),
-        span({ class: 'tf-check-name' }, p.name),
-        span({ class: 'tf-check-lv muted small' }, `LV ${fmtVal(p.lifetimeValue)}`),
+    div({ class: 'tf-ms-panel' }, ...pickPlayers.map((p) =>
+      div({ class: 'tf-check-row' },
+        el('label', { class: 'tf-check-main' },
+          el('input', {
+            type: 'checkbox',
+            checked: local.selectedIds.includes(p.playerId),
+            onchange: (e) => {
+              if (e.target.checked) { if (!local.selectedIds.includes(p.playerId)) local.selectedIds.push(p.playerId); }
+              else local.selectedIds = local.selectedIds.filter((id) => id !== p.playerId);
+              updateSummary();
+              paint();
+            },
+          }),
+          span({ class: 'tf-check-name' }, p.name),
+          span({ class: 'tf-check-lv muted small' }, `LV ${fmtVal(p.lifetimeValue)}`),
+        ),
+        sellToggle(p),
       ))));
   updateSummary();
 
@@ -146,6 +173,7 @@ async function load(leagueId) {
   out.appendChild(div({ class: 'card' },
     sectionTitle('Find an upgrade', 'Check one or more players to package together'),
     div({ class: 'field' }, span({ class: 'field-label' }, 'Trade away'), checklist),
+    div({ class: 'muted small' }, 'Tap “Sell” to flag a player you’re willing to move — flagged players sort to the top here and are prioritized when offers are auto-built on the Targets page.'),
     div({ class: 'tf-controls-row' }, posSel, consensus ? buyLowToggle : null),
     resultsHost,
   ));

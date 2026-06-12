@@ -203,7 +203,6 @@ async function load(leagueId) {
       sectionTitle(`Available now`, available.length ? `${available.length}` : null),
       available.length
         ? div({ class: 'list' }, ...available.map((p) => targetRow(p, {
-            badge: span({ class: 'badge arb-buy' }, 'Free agent'),
             action: btn({ class: 'btn btn-sm', onclick: () => navigate('leagues', 'freeagents') }, 'Free Agents →'),
           })))
         : emptyBlock('None of your targets are free agents in this league right now.'),

@@ -9,7 +9,7 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
 import { getState, getActiveLeagueId } from '../store.js';
-import { getLeagueDrafts, getDraft, getDraftPicks, getDraftTradedPicks } from '../api/sleeper.js';
+import { getLeagueDrafts, getDraft, getDraftPicks, getDraftTradedPicks, getLeagueTradedPicks } from '../api/sleeper.js';
 import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -53,17 +53,23 @@ function primaryPos(positions) {
 async function load(leagueId, myToken) {
   const ctx = await loadLeagueContext(leagueId);
 
-  // Resolve the draft: prefer a live one, else the most recent.
-  let draft = null;
+  // Resolve which draft: prefer a live one, else the most recent.
+  let draftId = ctx.league?.draft_id || null;
   try {
     const drafts = await getLeagueDrafts(leagueId);
     if (Array.isArray(drafts) && drafts.length) {
-      draft = drafts.find((d) => d.status === 'drafting' || d.status === 'paused') || drafts[0];
+      const chosen = drafts.find((d) => d.status === 'drafting' || d.status === 'paused') || drafts[0];
+      draftId = chosen?.draft_id || draftId;
     }
   } catch { /* fall through to league.draft_id */ }
-  if (!draft && ctx.league?.draft_id) {
-    try { draft = await getDraft(ctx.league.draft_id); } catch { /* ignore */ }
+  if (!draftId) {
+    return div({}, matchDiagnostic(ctx.diagnostic, { compact: true }),
+      emptyBlock('No draft found for this league. Sleeper exposes the board once a draft is created.'));
   }
+  // Always fetch the FULL draft object — the league-drafts list omits slot_to_roster_id /
+  // draft_order, which we need to project your actual (traded) picks.
+  let draft = null;
+  try { draft = await getDraft(draftId); } catch { /* ignore */ }
   if (!draft) {
     return div({}, matchDiagnostic(ctx.diagnostic, { compact: true }),
       emptyBlock('No draft found for this league. Sleeper exposes the board once a draft is created.'));
@@ -82,8 +88,23 @@ async function load(leagueId, myToken) {
 
   const userId = getState().settings.userId;
   const mySlot = draft.draft_order?.[userId] ?? null;
-  const myRosterId = ctx.myRoster?.roster_id ?? null;
-  const slotToRoster = draft.slot_to_roster_id || null; // draft slot -> roster_id
+
+  // Map draft slot -> roster_id. Prefer Sleeper's slot_to_roster_id; otherwise derive it
+  // from draft_order (user -> slot) + rosters (user -> roster_id).
+  let slotToRoster = draft.slot_to_roster_id || null;
+  if (!slotToRoster && draft.draft_order) {
+    const rosterByOwner = new Map();
+    for (const r of ctx.rosters) if (r.owner_id != null) rosterByOwner.set(r.owner_id, r.roster_id);
+    slotToRoster = {};
+    for (const [uid, slot] of Object.entries(draft.draft_order)) {
+      const rid = rosterByOwner.get(uid);
+      if (rid != null) slotToRoster[slot] = rid;
+    }
+  }
+
+  // Your roster id (used to claim picks by ownership). Fall back to your slot's roster.
+  let myRosterId = ctx.myRoster?.roster_id ?? null;
+  if (myRosterId == null && mySlot != null && slotToRoster) myRosterId = slotToRoster[mySlot] ?? null;
 
   // Snake/linear pick math, so we can project where your next pick lands.
   const teams = Number(draft.settings?.teams) || 0;
@@ -92,12 +113,20 @@ async function load(leagueId, myToken) {
   const isSnake = (draft.type || 'snake') === 'snake';
 
   // Traded picks: which roster currently OWNS each (round, original-roster) pick. This is
-  // what makes the projection track your ACTUAL picks, not just your snake slot.
+  // what makes the projection track your ACTUAL picks, not just your snake slot. We merge
+  // the draft-scoped list with the league list (filtered to this draft's season) since the
+  // draft endpoint is sometimes incomplete.
   const tradedOwner = new Map(); // `${round}:${originalRosterId}` -> current owner roster_id
-  try {
-    const traded = await getDraftTradedPicks(draft.draft_id);
-    for (const t of traded || []) tradedOwner.set(`${t.round}:${t.roster_id}`, t.owner_id);
-  } catch { /* no trades / unavailable — projection falls back to slot order */ }
+  const ingest = (list, filterSeason) => {
+    for (const t of list || []) {
+      if (filterSeason && draft.season != null && String(t.season) !== String(draft.season)) continue;
+      if (t.round != null && t.roster_id != null && t.owner_id != null) {
+        tradedOwner.set(`${t.round}:${t.roster_id}`, t.owner_id);
+      }
+    }
+  };
+  try { ingest(await getDraftTradedPicks(draftId), false); } catch { /* ignore */ }
+  try { ingest(await getLeagueTradedPicks(leagueId), true); } catch { /* ignore */ }
 
   // Which draft slot is on the clock at overall pick P (1-indexed).
   function slotAt(P) {
@@ -250,7 +279,7 @@ async function load(leagueId, myToken) {
   }
 
   async function refresh() {
-    const picks = await getDraftPicks(draft.draft_id);
+    const picks = await getDraftPicks(draftId);
     if (myToken !== viewToken) return; // navigated away mid-flight
     recompute(picks);
     paintAll();

@@ -102,6 +102,23 @@ export function getTransactions(leagueId, week) {
   return get(`/league/${leagueId}/transactions/${week}`);
 }
 
+// --- Drafts ---
+// All drafts for a league (most recent first). A league may have several over its life
+// (startup + yearly rookie drafts); the live one has status 'drafting'/'paused'.
+export function getLeagueDrafts(leagueId) {
+  return get(`/league/${leagueId}/drafts`, { cacheMs: 60 * 1000 });
+}
+
+export function getDraft(draftId) {
+  return get(`/draft/${draftId}`, { cacheMs: 60 * 1000 });
+}
+
+// Picks made so far. Not cached — during a live draft this changes pick-by-pick and the
+// Draft view polls it. In-flight dedup still collapses concurrent calls.
+export function getDraftPicks(draftId) {
+  return get(`/draft/${draftId}/picks`, { cacheMs: 0 });
+}
+
 // NFL state with calendar fallback if the call fails.
 export async function getNflState() {
   try {

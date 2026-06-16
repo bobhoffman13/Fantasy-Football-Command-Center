@@ -68,6 +68,7 @@ export const LEAGUE_VIEWS = [
   { id: 'matchup', label: 'Matchup', hideInOffseason: true },
   { id: 'freeagents', label: 'Free Agents' },
   { id: 'tradefinder', label: 'Trade Finder' },
+  { id: 'draft', label: 'Draft' },
   { id: 'targets', label: 'Targets' },
   { id: 'transactions', label: 'Transactions' },
 ];

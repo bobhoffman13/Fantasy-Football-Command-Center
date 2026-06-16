@@ -338,6 +338,18 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .badge.arb-premium { background: rgba(255,93,93,.16); color: var(--bad); }
 .badge.arb-fair { background: rgba(141,151,184,.16); color: var(--muted); }
 
+/* Draft board */
+.draft-status { margin-bottom: 10px; }
+.draft-roster-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.draft-pos-chip { flex: 1 1 80px; min-width: 72px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 6px; text-align: center; }
+.draft-pos-chip.need { border-color: var(--primary); }
+.draft-pos-chip .dp-pos { font-weight: 800; font-size: 13px; }
+.draft-pos-chip .dp-count { font-size: 18px; font-weight: 700; }
+.badge.draft-need { background: rgba(58,122,254,.18); color: var(--primary); }
+.badge.draft-up { background: rgba(46,204,113,.2); color: var(--good); }
+.badge.draft-down { background: rgba(141,151,184,.16); color: var(--muted); }
+.badge.draft-fair { background: rgba(141,151,184,.16); color: var(--muted); }
+
 /* Trade Finder — multi-select package picker (click-to-open dropdown) */
 .tf-multiselect { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
 .tf-ms-summary { display: flex; align-items: center; gap: 8px; padding: 11px 12px; min-height: var(--tap); cursor: pointer; font-weight: 600; list-style: none; -webkit-tap-highlight-color: transparent; }

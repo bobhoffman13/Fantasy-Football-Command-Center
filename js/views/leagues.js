@@ -7,6 +7,7 @@ import { emptyBlock } from './components.js';
 import * as matchup from './matchup.js';
 import * as freeagents from './freeagents.js';
 import * as tradefinder from './tradefinder.js';
+import * as draft from './draft.js';
 import * as targets from './targets.js';
 import * as lineupview from './lineupview.js';
 import * as waivers from './waivers.js';
@@ -14,7 +15,7 @@ import * as overview from './overview.js';
 
 // 'transactions' is served by the overview module. 'waivers' is reachable from the
 // Free Agents page (a button), so it stays renderable here without being a tab.
-const VIEW_MAP = { lineup: lineupview, matchup, freeagents, tradefinder, targets, transactions: overview, waivers };
+const VIEW_MAP = { lineup: lineupview, matchup, freeagents, tradefinder, draft, targets, transactions: overview, waivers };
 
 export function render(container, sub) {
   const { session } = getState();

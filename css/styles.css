@@ -349,6 +349,10 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .badge.draft-up { background: rgba(46,204,113,.2); color: var(--good); }
 .badge.draft-down { background: rgba(141,151,184,.16); color: var(--muted); }
 .badge.draft-fair { background: rgba(141,151,184,.16); color: var(--muted); }
+.draft-pickline { margin: 2px 0 4px; }
+.draft-pick-marker { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.draft-pick-marker::before, .draft-pick-marker::after { content: ''; flex: 1; height: 2px; background: var(--primary); border-radius: 2px; }
+.dpm-label { color: var(--primary); font-weight: 800; font-size: 12px; white-space: nowrap; }
 
 /* Trade Finder — multi-select package picker (click-to-open dropdown) */
 .tf-multiselect { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }

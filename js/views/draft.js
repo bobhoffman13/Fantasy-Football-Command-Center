@@ -82,6 +82,31 @@ async function load(leagueId, myToken) {
 
   const userId = getState().settings.userId;
   const mySlot = draft.draft_order?.[userId] ?? null;
+
+  // Snake/linear pick math, so we can project where your next pick lands.
+  const teams = Number(draft.settings?.teams) || 0;
+  const rounds = Number(draft.settings?.rounds) || 0;
+  const isAuction = draft.type === 'auction';
+  const isSnake = (draft.type || 'snake') === 'snake';
+
+  // Which draft slot is on the clock at overall pick P (1-indexed).
+  function slotAt(P) {
+    const posInRound = ((P - 1) % teams) + 1;
+    const round = Math.floor((P - 1) / teams) + 1;
+    return (isSnake && round % 2 === 0) ? (teams - posInRound + 1) : posInRound;
+  }
+  // Given picks already made, find your next pick: how many picks happen before it
+  // (`before`), its overall number, and round. null when it can't be projected.
+  function myNextPick(picksMade) {
+    if (!teams || !mySlot || isAuction) return null;
+    const maxPick = rounds ? teams * rounds : teams * 30;
+    const start = picksMade + 1;
+    for (let P = start; P <= maxPick; P++) {
+      if (slotAt(P) === mySlot) return { before: P - start, overall: P, round: Math.floor((P - 1) / teams) + 1 };
+    }
+    return null;
+  }
+
   // Players already rostered league-wide before the draft (e.g. dynasty keepers) — never
   // "available". Picks made during the draft are layered on top each refresh.
   const preRostered = new Set([...rosteredPlayerIds(ctx.rosters)].map(String));
@@ -92,6 +117,7 @@ async function load(leagueId, myToken) {
   let myRosterPlayers = [];
   let posStats = {}; // pos -> { count, avg }
   let totalPicks = 0;
+  let myPick = null; // { before, overall, round } | null
 
   const out = div({});
   out.appendChild(matchDiagnostic(ctx.diagnostic, { compact: true }));
@@ -151,6 +177,7 @@ async function load(leagueId, myToken) {
     }
 
     available = rankedPool.filter((p) => !taken.has(String(p.playerId)));
+    myPick = myNextPick(totalPicks);
   }
 
   function paintAll() {
@@ -160,16 +187,40 @@ async function load(leagueId, myToken) {
   }
 
   function paintList() {
+    const filtered = local.pos !== 'ALL' || !!local.q;
     let rows = available;
     if (local.pos !== 'ALL') rows = rows.filter((p) => p.positions.includes(local.pos));
     if (local.q) rows = rows.filter((p) => p.name.toLowerCase().includes(local.q));
     const capped = rows.slice(0, MAX_LIST);
+
+    // The projection line only makes sense on the full, unfiltered board (picks before
+    // you span every position, not just the filtered one).
+    const nodes = capped.map((p) => draftRow(p, posStats));
+    if (!filtered && myPick && myPick.before <= capped.length) {
+      nodes.splice(myPick.before, 0, pickMarker(myPick));
+    }
+
+    const pickLine = myPick
+      ? `Your next pick: Round ${myPick.round}, #${myPick.overall} overall` + (myPick.before === 0 ? ' — on the clock' : ` · ~${myPick.before} off the board first`)
+      : (!isAuction && !mySlot ? 'Draft order not set yet — pick projection unavailable' : null);
+
     mount(listHost,
-      div({ class: 'muted small fa-count' }, `${rows.length} available${rows.length > MAX_LIST ? ` (showing top ${MAX_LIST})` : ''}`),
+      pickLine ? div({ class: 'muted small draft-pickline' }, pickLine) : null,
+      div({ class: 'muted small fa-count' },
+        `${rows.length} available${rows.length > MAX_LIST ? ` (showing top ${MAX_LIST})` : ''}`
+        + (filtered && myPick ? ' · pick line hidden while filtered' : '')),
       capped.length
-        ? div({ class: 'card' }, div({ class: 'list' }, ...capped.map((p) => draftRow(p, posStats))))
+        ? div({ class: 'card' }, div({ class: 'list' }, ...nodes))
         : emptyBlock('No matching available players.'),
     );
+  }
+
+  function pickMarker(mp) {
+    const label = mp.before === 0
+      ? '🟢 Your pick — on the clock'
+      : `⬇ Your pick here · Round ${mp.round}, #${mp.overall} overall`;
+    return div({ class: 'draft-pick-marker', title: 'Projected, assuming players come off the board in your ranking order' },
+      span({ class: 'dpm-label' }, label));
   }
 
   async function refresh() {

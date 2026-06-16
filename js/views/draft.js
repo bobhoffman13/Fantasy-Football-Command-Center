@@ -9,7 +9,7 @@ import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
 import { enrichPlayer } from '../lib/players.js';
 import { getState, getActiveLeagueId } from '../store.js';
-import { getLeagueDrafts, getDraft, getDraftPicks } from '../api/sleeper.js';
+import { getLeagueDrafts, getDraft, getDraftPicks, getDraftTradedPicks } from '../api/sleeper.js';
 import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
@@ -82,6 +82,8 @@ async function load(leagueId, myToken) {
 
   const userId = getState().settings.userId;
   const mySlot = draft.draft_order?.[userId] ?? null;
+  const myRosterId = ctx.myRoster?.roster_id ?? null;
+  const slotToRoster = draft.slot_to_roster_id || null; // draft slot -> roster_id
 
   // Snake/linear pick math, so we can project where your next pick lands.
   const teams = Number(draft.settings?.teams) || 0;
@@ -89,20 +91,44 @@ async function load(leagueId, myToken) {
   const isAuction = draft.type === 'auction';
   const isSnake = (draft.type || 'snake') === 'snake';
 
+  // Traded picks: which roster currently OWNS each (round, original-roster) pick. This is
+  // what makes the projection track your ACTUAL picks, not just your snake slot.
+  const tradedOwner = new Map(); // `${round}:${originalRosterId}` -> current owner roster_id
+  try {
+    const traded = await getDraftTradedPicks(draft.draft_id);
+    for (const t of traded || []) tradedOwner.set(`${t.round}:${t.roster_id}`, t.owner_id);
+  } catch { /* no trades / unavailable — projection falls back to slot order */ }
+
   // Which draft slot is on the clock at overall pick P (1-indexed).
   function slotAt(P) {
     const posInRound = ((P - 1) % teams) + 1;
     const round = Math.floor((P - 1) / teams) + 1;
     return (isSnake && round % 2 === 0) ? (teams - posInRound + 1) : posInRound;
   }
-  // Given picks already made, find your next pick: how many picks happen before it
-  // (`before`), its overall number, and round. null when it can't be projected.
+  // Does overall pick P belong to you? Resolve the slot -> original roster, then apply any
+  // trade that moved that pick to another roster. Falls back to raw slot if we can't map
+  // rosters (then trades aren't reflected).
+  function isMyPick(P) {
+    const slot = slotAt(P);
+    if (slotToRoster && myRosterId != null) {
+      const baseRoster = slotToRoster[slot];
+      if (baseRoster != null) {
+        const round = Math.floor((P - 1) / teams) + 1;
+        const key = `${round}:${baseRoster}`;
+        const owner = tradedOwner.has(key) ? tradedOwner.get(key) : baseRoster;
+        return owner === myRosterId;
+      }
+    }
+    return mySlot != null && slot === mySlot;
+  }
+  // Find your next actual pick: how many picks happen before it (`before`), its overall
+  // number, and round. null when it can't be projected.
   function myNextPick(picksMade) {
-    if (!teams || !mySlot || isAuction) return null;
+    if (!teams || isAuction || (myRosterId == null && mySlot == null)) return null;
     const maxPick = rounds ? teams * rounds : teams * 30;
     const start = picksMade + 1;
     for (let P = start; P <= maxPick; P++) {
-      if (slotAt(P) === mySlot) return { before: P - start, overall: P, round: Math.floor((P - 1) / teams) + 1 };
+      if (isMyPick(P)) return { before: P - start, overall: P, round: Math.floor((P - 1) / teams) + 1 };
     }
     return null;
   }

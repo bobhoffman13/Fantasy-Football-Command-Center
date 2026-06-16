@@ -119,6 +119,12 @@ export function getDraftPicks(draftId) {
   return get(`/draft/${draftId}/picks`, { cacheMs: 0 });
 }
 
+// Traded draft picks for a draft: [{ season, round, roster_id, previous_owner_id, owner_id }].
+// roster_id = the pick's original slot owner; owner_id = who holds it now.
+export function getDraftTradedPicks(draftId) {
+  return get(`/draft/${draftId}/traded_picks`, { cacheMs: 60 * 1000 });
+}
+
 // NFL state with calendar fallback if the call fails.
 export async function getNflState() {
   try {

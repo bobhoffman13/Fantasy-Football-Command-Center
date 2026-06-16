@@ -125,6 +125,12 @@ export function getDraftTradedPicks(draftId) {
   return get(`/draft/${draftId}/traded_picks`, { cacheMs: 60 * 1000 });
 }
 
+// All traded picks for a league across seasons (same shape as draft traded picks). Used as
+// a supplement when the draft-scoped list is incomplete.
+export function getLeagueTradedPicks(leagueId) {
+  return get(`/league/${leagueId}/traded_picks`, { cacheMs: 60 * 1000 });
+}
+
 // NFL state with calendar fallback if the call fails.
 export async function getNflState() {
   try {

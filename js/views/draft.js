@@ -150,16 +150,17 @@ async function load(leagueId, myToken) {
     }
     return mySlot != null && slot === mySlot;
   }
-  // Find your next actual pick: how many picks happen before it (`before`), its overall
-  // number, and round. null when it can't be projected.
-  function myNextPick(picksMade) {
-    if (!teams || isAuction || (myRosterId == null && mySlot == null)) return null;
+  // Find every upcoming pick you own (trade-aware), each as { before, overall, round },
+  // where `before` is how many picks happen before it relative to now. First = next pick.
+  function myUpcomingPicks(picksMade) {
+    if (!teams || isAuction || (myRosterId == null && mySlot == null)) return [];
     const maxPick = rounds ? teams * rounds : teams * 30;
     const start = picksMade + 1;
+    const picks = [];
     for (let P = start; P <= maxPick; P++) {
-      if (isMyPick(P)) return { before: P - start, overall: P, round: Math.floor((P - 1) / teams) + 1 };
+      if (isMyPick(P)) picks.push({ before: P - start, overall: P, round: Math.floor((P - 1) / teams) + 1 });
     }
-    return null;
+    return picks;
   }
 
   // Players already rostered league-wide before the draft (e.g. dynasty keepers) — never
@@ -172,7 +173,7 @@ async function load(leagueId, myToken) {
   let myRosterPlayers = [];
   let posStats = {}; // pos -> { count, avg }
   let totalPicks = 0;
-  let myPick = null; // { before, overall, round } | null
+  let myPicks = []; // [{ before, overall, round }] — all your upcoming picks, next first
 
   const out = div({});
   out.appendChild(matchDiagnostic(ctx.diagnostic, { compact: true }));
@@ -232,7 +233,7 @@ async function load(leagueId, myToken) {
     }
 
     available = rankedPool.filter((p) => !taken.has(String(p.playerId)));
-    myPick = myNextPick(totalPicks);
+    myPicks = myUpcomingPicks(totalPicks);
   }
 
   function paintAll() {
@@ -248,22 +249,31 @@ async function load(leagueId, myToken) {
     if (local.q) rows = rows.filter((p) => p.name.toLowerCase().includes(local.q));
     const capped = rows.slice(0, MAX_LIST);
 
-    // The projection line only makes sense on the full, unfiltered board (picks before
-    // you span every position, not just the filtered one).
-    const nodes = capped.map((p) => draftRow(p, posStats));
-    if (!filtered && myPick && myPick.before <= capped.length) {
-      nodes.splice(myPick.before, 0, pickMarker(myPick));
+    // Projection lines only make sense on the full, unfiltered board (picks before each of
+    // your selections span every position, not just the filtered one). Insert a marker at
+    // each owned pick's projected slot.
+    const markerAt = new Map(); // insertion index -> pick
+    if (!filtered) {
+      for (const mp of myPicks) if (mp.before <= capped.length && !markerAt.has(mp.before)) markerAt.set(mp.before, mp);
+    }
+    const nodes = [];
+    for (let i = 0; i <= capped.length; i++) {
+      if (markerAt.has(i)) nodes.push(pickMarker(markerAt.get(i)));
+      if (i < capped.length) nodes.push(draftRow(capped[i], posStats));
     }
 
-    const pickLine = myPick
-      ? `Your next pick: Round ${myPick.round}, #${myPick.overall} overall` + (myPick.before === 0 ? ' — on the clock' : ` · ~${myPick.before} off the board first`)
+    const next = myPicks[0];
+    const pickLine = next
+      ? `Your next pick: Round ${next.round}, #${next.overall} overall`
+        + (next.before === 0 ? ' — on the clock' : ` · ~${next.before} off the board first`)
+        + (myPicks.length > 1 ? ` · ${myPicks.length} of your picks remaining` : '')
       : (!isAuction && !mySlot ? 'Draft order not set yet — pick projection unavailable' : null);
 
     mount(listHost,
       pickLine ? div({ class: 'muted small draft-pickline' }, pickLine) : null,
       div({ class: 'muted small fa-count' },
         `${rows.length} available${rows.length > MAX_LIST ? ` (showing top ${MAX_LIST})` : ''}`
-        + (filtered && myPick ? ' · pick line hidden while filtered' : '')),
+        + (filtered && myPicks.length ? ' · pick lines hidden while filtered' : '')),
       capped.length
         ? div({ class: 'card' }, div({ class: 'list' }, ...nodes))
         : emptyBlock('No matching available players.'),
@@ -273,7 +283,7 @@ async function load(leagueId, myToken) {
   function pickMarker(mp) {
     const label = mp.before === 0
       ? '🟢 Your pick — on the clock'
-      : `⬇ Your pick here · Round ${mp.round}, #${mp.overall} overall`;
+      : `⬇ Your pick · Round ${mp.round}, #${mp.overall} overall`;
     return div({ class: 'draft-pick-marker', title: 'Projected, assuming players come off the board in your ranking order' },
       span({ class: 'dpm-label' }, label));
   }

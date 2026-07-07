@@ -1,21 +1,25 @@
 // LEAGUES > Draft
 //
 // A live draft board for the active league. Lists every still-available player ranked by
-// YOUR uploaded rankings, and — for each one — compares their rank to the average rank of
-// the players you've already drafted at the same position, so you can see upgrades and
-// positions of need at a glance. Auto-refreshes while a draft is in progress.
+// YOUR uploaded rankings, compares each to the average rank of players you've drafted at
+// the same position, marks where your (trade-aware) picks land, and — via the Draft
+// Assistant — recommends the top 3 picks by blending your rankings with live game theory
+// (roster need, positional scarcity/runs across all teams, survival to your next pick).
+// Auto-refreshes while a draft is in progress.
 
 import { div, span, el, btn, mount } from '../lib/dom.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
-import { enrichPlayer } from '../lib/players.js';
+import { enrichPlayer, playerPositions } from '../lib/players.js';
 import { getState, getActiveLeagueId } from '../store.js';
 import { getLeagueDrafts, getDraft, getDraftPicks, getDraftTradedPicks, getLeagueTradedPicks } from '../api/sleeper.js';
+import { recommendDraftPicks, starterTargets } from '../lib/draftstrategy.js';
 import { asyncRegion, matchDiagnostic, rankBadge, injuryBadge, byeBadge, emptyBlock, sectionTitle } from './components.js';
 
 const POSITIONS = ['ALL', 'QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const POS_ORDER = ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'];
 const MAX_LIST = 250;
 const POLL_MS = 15000;
+const RUN_WINDOW = 10; // recent picks scanned for positional-run detection
 
 const STATUS = {
   pre_draft: { label: 'Not started', live: false },
@@ -168,16 +172,38 @@ async function load(leagueId, myToken) {
   const preRostered = new Set([...rosteredPlayerIds(ctx.rosters)].map(String));
   const myExisting = (ctx.myRoster?.players || []).map(String); // your roster going in
 
+  // Strategy inputs. Starter demand + each team's pre-draft positional makeup (static);
+  // live picks are layered on per refresh to gauge league-wide need and positional runs.
+  const targets = starterTargets(ctx.league?.roster_positions);
+  const posOf = (id) => primaryPos(playerPositions(ctx.players, id));
+  const rosterByOwner = new Map();
+  for (const r of ctx.rosters) if (r.owner_id != null) rosterByOwner.set(r.owner_id, r.roster_id);
+  const baseCounts = new Map(); // rosterId -> { POS: count }
+  const baseIds = new Map();    // rosterId -> Set(playerId) (to avoid double-counting picks)
+  for (const r of ctx.rosters) {
+    const counts = {};
+    const ids = new Set();
+    for (const pid of r.players || []) {
+      ids.add(String(pid));
+      const pos = posOf(String(pid));
+      if (pos) counts[pos] = (counts[pos] || 0) + 1;
+    }
+    baseCounts.set(r.roster_id, counts);
+    baseIds.set(r.roster_id, ids);
+  }
+
   // Closure state, refreshed from picks.
   let available = [];
   let myRosterPlayers = [];
   let posStats = {}; // pos -> { count, avg }
   let totalPicks = 0;
   let myPicks = []; // [{ before, overall, round }] — all your upcoming picks, next first
+  let recommendations = []; // top-3 strategy picks
 
   const out = div({});
   out.appendChild(matchDiagnostic(ctx.diagnostic, { compact: true }));
   const statusHost = div({ class: 'draft-status' });
+  const recHost = div({});
   const summaryHost = div({});
   const listHost = div({});
 
@@ -195,7 +221,7 @@ async function load(leagueId, myToken) {
     div({ class: 'fa-controls-row' }, search, posSel),
   );
 
-  out.append(statusHost, summaryHost, controls, listHost);
+  out.append(statusHost, recHost, summaryHost, controls, listHost);
 
   function recompute(picks) {
     const taken = new Set(preRostered); // rostered + drafted = unavailable
@@ -234,10 +260,45 @@ async function load(leagueId, myToken) {
 
     available = rankedPool.filter((p) => !taken.has(String(p.playerId)));
     myPicks = myUpcomingPicks(totalPicks);
+
+    // League-wide positional demand + recent run, from every team's live makeup.
+    const countsByRoster = new Map();
+    for (const [rid, counts] of baseCounts) countsByRoster.set(rid, { ...counts });
+    const recentPositions = [];
+    for (const pk of [...(picks || [])].sort((a, b) => (a.pick_no || 0) - (b.pick_no || 0))) {
+      if (!pk.player_id) continue;
+      const pos = posOf(String(pk.player_id));
+      if (pos) recentPositions.push(pos);
+      const rid = pk.roster_id != null ? pk.roster_id : rosterByOwner.get(pk.picked_by);
+      if (rid != null && pos && !baseIds.get(rid)?.has(String(pk.player_id))) {
+        const c = countsByRoster.get(rid) || {};
+        c[pos] = (c[pos] || 0) + 1;
+        countsByRoster.set(rid, c);
+      }
+    }
+    const myCounts = {};
+    for (const pos of POS_ORDER) myCounts[pos] = posStats[pos]?.count || 0;
+    const leagueDemand = {};
+    for (const pos of POS_ORDER) {
+      const req = Math.round(targets[pos] || 0);
+      let n = 0;
+      for (const [rid, counts] of countsByRoster) {
+        if (rid === myRosterId) continue;
+        if ((counts[pos] || 0) < req) n++;
+      }
+      leagueDemand[pos] = n;
+    }
+    recommendations = recommendDraftPicks({
+      available, myCounts, targets, leagueDemand,
+      recentPositions: recentPositions.slice(-RUN_WINDOW),
+      picksUntilNext: myPicks[0]?.before ?? null,
+      teamsCount: teams || ctx.rosters.length,
+    });
   }
 
   function paintAll() {
     mount(statusHost, statusBanner(draft, totalPicks));
+    mount(recHost, recommendationsCard(recommendations));
     mount(summaryHost, rosterSummary(myRosterPlayers.length, posStats));
     paintList();
   }
@@ -317,6 +378,24 @@ function statusBanner(draft, totalPicks) {
   return div({ class: `diag ${s.live ? 'diag-ok' : 'diag-none'}` },
     div({ class: 'diag-head' }, span({}, s.label)),
     div({ class: 'muted small' }, meta),
+  );
+}
+
+function recommendationsCard(recs) {
+  if (!recs || !recs.length) return div({});
+  return div({ class: 'card draft-rec-card' },
+    sectionTitle('Draft assistant', 'Top 3 picks now — your rankings + draft game theory'),
+    div({ class: 'list' }, ...recs.map((r, i) =>
+      div({ class: 'player-row target-row draft-rec' },
+        span({ class: 'draft-rec-num' }, String(i + 1)),
+        div({ class: 'pr-main' },
+          span({ class: 'pr-name' }, r.player.name),
+          span({ class: 'pr-meta muted small' }, [r.player.team, r.player.positions.join('/')].filter(Boolean).join(' · ')),
+          div({ class: 'draft-rec-why muted small' }, r.reasons.join(' · ')),
+        ),
+        div({ class: 'row-badges' }, rankBadge(r.player.rank)),
+      ))),
+    div({ class: 'muted small draft-rec-note' }, 'Balances your rankings with roster need, positional scarcity, and whether a player survives to your next pick.'),
   );
 }
 

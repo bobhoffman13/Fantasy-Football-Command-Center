@@ -10,7 +10,7 @@
 // - Settings persist to localStorage; ranking profiles + player cache live in IndexedDB.
 
 import { idbGet, idbSet, idbClearAll } from './lib/idb.js';
-import { SEASON_FALLBACK } from './data/constants.js';
+import { SEASON_FALLBACK, SNOOZE_DAYS, SNOOZE_LIMIT, SNOOZE_FORGET_DAYS } from './data/constants.js';
 
 const SETTINGS_KEY = 'ffcc:settings';
 const PROFILES_IDB_KEY = 'profiles';
@@ -33,6 +33,7 @@ function defaultSettings() {
     legacyRankings: { dynasty: null, redraft: null }, // { rows, uploadedAt }
     interestPlayers: [],  // Sleeper player IDs to watch (availability + trade targets)
     forSale: [],          // your player IDs flagged willing-to-sell (prioritized in trade recs)
+    snoozes: {},          // leagueId -> { actionKey: { n, until } } for the Home action plan
   };
 }
 
@@ -158,6 +159,84 @@ export function toggleForSale(id) {
   emit('settings', 'forSale');
 }
 
+// --- action-plan snoozes ---
+// A Home action plan recommendation can be dismissed with an X. That doesn't delete it
+// — it hides it for a week. Snooze the same recommendation SNOOZE_LIMIT times and it's
+// gone for good, on the theory that saying no three times is a real answer.
+//
+// Stored per league and keyed by the action's stable identity (e.g. "sell:4034"), so a
+// snooze survives the plan being recomputed and follows the specific recommendation
+// rather than a list position.
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function snoozeMapFor(leagueId) {
+  return (state.settings.snoozes || {})[leagueId] || {};
+}
+
+export function getSnoozeState(leagueId, key, now = Date.now()) {
+  const entry = snoozeMapFor(leagueId)[key];
+  if (!entry) return { n: 0, until: 0, dismissed: false, active: false };
+  const dismissed = entry.n >= SNOOZE_LIMIT;
+  return { n: entry.n, until: entry.until, dismissed, active: dismissed || entry.until > now };
+}
+
+export function isActionSnoozed(leagueId, key, now = Date.now()) {
+  return getSnoozeState(leagueId, key, now).active;
+}
+
+// Bump a recommendation's snooze count. Returns the resulting state so the caller can
+// tell the user whether it was hidden for a week or retired permanently.
+export function snoozeAction(leagueId, key, now = Date.now()) {
+  const current = snoozeMapFor(leagueId);
+  const n = Math.min(SNOOZE_LIMIT, (current[key]?.n || 0) + 1);
+  const next = { ...current, [key]: { n, until: now + SNOOZE_DAYS * DAY_MS } };
+  updateMap('snoozes', leagueId, next);
+  return getSnoozeState(leagueId, key, now);
+}
+
+// Undo the most recent snooze of a recommendation (powers the "Undo" toast).
+export function unsnoozeAction(leagueId, key) {
+  const current = snoozeMapFor(leagueId);
+  const entry = current[key];
+  if (!entry) return;
+  const next = { ...current };
+  if (entry.n <= 1) delete next[key];
+  else next[key] = { n: entry.n - 1, until: 0 };
+  updateMap('snoozes', leagueId, Object.keys(next).length ? next : undefined);
+}
+
+export function clearSnoozes(leagueId) {
+  updateMap('snoozes', leagueId, undefined);
+}
+
+// Count of recommendations currently hidden in a league, for the "N hidden" affordance.
+export function snoozedCount(leagueId, now = Date.now()) {
+  return Object.keys(snoozeMapFor(leagueId)).filter((k) => isActionSnoozed(leagueId, k, now)).length;
+}
+
+// Drop expired, un-dismissed snoozes that nobody has seen in a long time so the stored
+// settings blob can't grow without bound. Called once on load.
+function pruneSnoozes(now = Date.now()) {
+  const all = state.settings.snoozes || {};
+  const next = {};
+  let changed = false;
+  for (const [leagueId, entries] of Object.entries(all)) {
+    const kept = {};
+    for (const [key, e] of Object.entries(entries || {})) {
+      const stale = e.n < SNOOZE_LIMIT && e.until && now - e.until > SNOOZE_FORGET_DAYS * DAY_MS;
+      if (stale) { changed = true; continue; }
+      kept[key] = e;
+    }
+    if (Object.keys(kept).length) next[leagueId] = kept;
+    else if (Object.keys(entries || {}).length) changed = true;
+  }
+  if (changed) {
+    state.settings = { ...state.settings, snoozes: next };
+    persistSettings();
+  }
+}
+
 // --- profiles (IndexedDB-backed) ---
 
 async function persistProfiles() {
@@ -242,6 +321,7 @@ export async function loadPersisted() {
     const profiles = await idbGet(PROFILES_IDB_KEY);
     if (Array.isArray(profiles)) state.profiles = profiles;
   } catch { /* ignore */ }
+  pruneSnoozes();
 }
 
 // --- full wipe (Setup -> Clear all data) ---

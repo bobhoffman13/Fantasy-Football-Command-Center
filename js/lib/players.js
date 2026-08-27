@@ -61,6 +61,12 @@ export function enrichPlayer(id, playersMap, rankingLookup, nflState, riskMode) 
     injuryStatus,
     byeWeek,
     onBye,
+    // Real-world context straight from Sleeper, used by the Home action plan to
+    // justify recommendations with actual NFL usage rather than rankings alone.
+    depthChartPosition: p.depth_chart_position || null,
+    depthChartOrder: p.depth_chart_order != null ? Number(p.depth_chart_order) : null,
+    yearsExp: p.years_exp != null ? Number(p.years_exp) : null,
+    nflStatus: p.status || null,
   };
   const eval_ = evaluateStartability(base, riskMode);
   return { ...base, ...eval_ };

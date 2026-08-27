@@ -45,14 +45,21 @@ export const div = (props, ...c) => el('div', props, ...c);
 export const span = (props, ...c) => el('span', props, ...c);
 export const btn = (props, ...c) => el('button', { type: 'button', ...props }, ...c);
 
-// Simple toast notifications.
-export function toast(message, kind = 'info') {
+// Simple toast notifications. Pass `action` ({ label, onClick }) to attach a single
+// inline button — used for "Undo" after a destructive-feeling tap.
+export function toast(message, kind = 'info', action = null) {
   let host = document.getElementById('toast-host');
   if (!host) {
     host = el('div', { id: 'toast-host', class: 'toast-host' });
     document.body.appendChild(host);
   }
-  const t = el('div', { class: `toast toast-${kind}` }, message);
+  const t = el('div', { class: `toast toast-${kind}` }, span({}, message));
+  if (action && typeof action.onClick === 'function') {
+    t.appendChild(el('button', {
+      type: 'button', class: 'toast-action',
+      onclick: () => { action.onClick(); t.remove(); },
+    }, action.label || 'Undo'));
+  }
   host.appendChild(t);
   requestAnimationFrame(() => t.classList.add('show'));
   setTimeout(() => {

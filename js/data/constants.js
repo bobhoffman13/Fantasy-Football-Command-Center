@@ -50,6 +50,14 @@ export const LOW_MATCH_THRESHOLD = 0.8;
 // Profile data older than this many days is flagged stale.
 export const STALE_DAYS = 14;
 
+// Action Plan snooze rules: dismissing a recommendation hides it for a week, and
+// after this many snoozes it's dismissed for good (you've said no three times).
+export const SNOOZE_DAYS = 7;
+export const SNOOZE_LIMIT = 3;
+// Forget an expired, un-dismissed snooze after this long so a recommendation that
+// disappeared and came back much later starts from a clean slate.
+export const SNOOZE_FORGET_DAYS = 60;
+
 // Cache lifetimes.
 export const PLAYERS_CACHE_MS = 24 * 60 * 60 * 1000; // 24h
 export const GET_CACHE_MS = 5 * 60 * 1000; // 5m

@@ -297,6 +297,8 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .plan-x:hover, .plan-x:active { color: var(--bad); background: var(--surface-2); }
 
 .plan-footer { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.plan-freshness { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.plan-refresh { flex: 0 0 auto; }
 .plan-footer .diag { margin-bottom: 0; }
 .plan-hidden-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .activity-feed { margin-top: 12px; }

@@ -1,8 +1,8 @@
 // HOME / Dashboard
 import { div, span, btn, mount, toast } from '../lib/dom.js';
-import { getState, getProfiles, setGlobalLeague, snoozeAction, unsnoozeAction, clearSnoozes, isActionSnoozed, getSnoozeState, snoozedCount } from '../store.js';
+import { getState, getProfiles, setGlobalLeague, subscribe, snoozeAction, unsnoozeAction, clearSnoozes, isActionSnoozed, getSnoozeState, snoozedCount } from '../store.js';
 import { navigate } from '../router.js';
-import { seasonTypeLabel, daysSince } from '../lib/format.js';
+import { seasonTypeLabel, daysSince, relativeTime } from '../lib/format.js';
 import { STALE_DAYS, SNOOZE_LIMIT } from '../data/constants.js';
 import { getRosters, getLeagueUsers } from '../api/sleeper.js';
 import { computeStandings, loadLeagueContext, ownerDisplayName, rosteredPlayerIds } from '../lib/league.js';
@@ -22,11 +22,34 @@ const FA_POOL_MAX = 150;
 // module-level so a re-render (or a snooze) doesn't collapse cards or refetch the API.
 const expanded = new Set();
 const planInputs = new Map(); // leagueId -> input object for recommendActions()
+const planHosts = new Map(); // leagueId -> { host, league } for the OPEN cards, so a
+                              // rankings/league-type change can rebuild them without a full re-render.
+let storeSubscribed = false;
+
+// Anything that can change what a plan should recommend: a new/edited rankings profile,
+// a league's profile assignment or dynasty/redraft flag, the legacy-rankings fallback, or
+// risk tolerance (affects which players are startable). Deliberately narrow — it must NOT
+// include 'snoozes' or 'forSale', which fire on every tap inside the plan itself and are
+// already handled by a direct repaint, not a rebuild.
+const INVALIDATING_CHANNELS = ['profiles', 'assignments', 'leagueTypes', 'legacyRankings', 'riskMode'];
+
+function invalidatePlans() {
+  planInputs.clear();
+  for (const [id, ref] of planHosts) {
+    if (!expanded.has(id) || !ref.host.isConnected) continue;
+    openPlan(ref.host, ref.league);
+  }
+}
 
 export function render(container) {
   const { settings, session } = getState();
   const leagues = session.leagues;
   const connected = !!settings.userId;
+
+  if (!storeSubscribed) {
+    storeSubscribed = true;
+    subscribe(INVALIDATING_CHANNELS, invalidatePlans);
+  }
 
   const root = div({ class: 'view view-home' });
 
@@ -120,6 +143,7 @@ function leagueCard(league, settings) {
   const isDynasty = settings.leagueTypes[id] === 'dynasty';
   const planHost = div({ class: 'lc-plan' });
   const caret = span({ class: 'lc-caret' }, expanded.has(id) ? '▾' : '▸');
+  planHosts.set(id, { host: planHost, league });
 
   const head = btn({
     class: 'lc-head lc-toggle',
@@ -152,31 +176,32 @@ function leagueCard(league, settings) {
       mount(planHost);
     } else {
       expanded.add(id);
-      openPlan(planHost, league, isDynasty);
+      openPlan(planHost, league);
     }
     caret.textContent = expanded.has(id) ? '▾' : '▸';
     head.setAttribute('aria-expanded', expanded.has(id) ? 'true' : 'false');
   }
 
-  if (expanded.has(id)) openPlan(planHost, league, isDynasty);
+  if (expanded.has(id)) openPlan(planHost, league);
   return card;
 }
 
 // Open (and if needed, build) the action plan for a league. The assembled inputs are
 // cached per league for the session so collapsing and reopening — or snoozing an
 // action — recomputes the plan locally instead of hitting the network again.
-async function openPlan(host, league, isDynasty) {
+async function openPlan(host, league) {
   const id = league.league_id;
-  if (planInputs.has(id)) { paintPlan(host, league, isDynasty); return; }
+  const isDynasty = getState().settings.leagueTypes[id] === 'dynasty';
+  if (planInputs.has(id)) { paintPlan(host, league); return; }
 
   mount(host, loadingBlock('Building your action plan…'));
   try {
     const input = await buildPlanInput(league, isDynasty);
     planInputs.set(id, input);
     if (!expanded.has(id)) return; // user collapsed it while we were loading
-    paintPlan(host, league, isDynasty);
+    paintPlan(host, league);
   } catch (e) {
-    mount(host, errorBlock(e?.message || 'Could not build an action plan.', () => openPlan(host, league, isDynasty)));
+    mount(host, errorBlock(e?.message || 'Could not build an action plan.', () => openPlan(host, league)));
   }
 }
 
@@ -234,10 +259,18 @@ async function buildPlanInput(league, isDynasty) {
     hasRankings: !!ctx.ranking,
     rankingName: ctx.ranking?.name || null,
     diagnostic: ctx.diagnostic,
+    builtAt: Date.now(),
   };
 }
 
-function paintPlan(host, league, isDynasty) {
+// Force a rebuild of one league's plan, bypassing the cache — powers the manual
+// Refresh control (live scores/injuries/rosters otherwise only update on reload).
+function forceRefresh(host, league) {
+  planInputs.delete(league.league_id);
+  openPlan(host, league);
+}
+
+function paintPlan(host, league) {
   const id = league.league_id;
   const input = planInputs.get(id);
   if (!input) return;
@@ -247,7 +280,7 @@ function paintPlan(host, league, isDynasty) {
     isSnoozed: (key) => isActionSnoozed(id, key),
   });
 
-  const repaint = () => paintPlan(host, league, isDynasty);
+  const repaint = () => paintPlan(host, league);
 
   const nodes = [];
 
@@ -266,7 +299,7 @@ function paintPlan(host, league, isDynasty) {
     nodes.push(div({ class: 'plan-list' }, ...actions.map((a) => actionRow(a, id, repaint))));
   }
 
-  nodes.push(planFooter(input, id, repaint));
+  nodes.push(planFooter(input, league, host, repaint));
   mount(host, ...nodes);
 }
 
@@ -314,8 +347,10 @@ function horizonLabel(h) {
   return 'Win now';
 }
 
-// Data-provenance line plus a way back from over-eager snoozing.
-function planFooter(input, leagueId, repaint) {
+// Data-provenance line, a "how fresh is this" readout with a manual refresh, and a
+// way back from over-eager snoozing.
+function planFooter(input, league, host, repaint) {
+  const leagueId = league.league_id;
   const sources = [
     input.hasRankings ? `your “${input.rankingName}” rankings` : null,
     input.consensus ? 'public market values (FantasyCalc)' : null,
@@ -324,6 +359,10 @@ function planFooter(input, leagueId, repaint) {
 
   const hidden = snoozedCount(leagueId);
   return div({ class: 'plan-footer' },
+    div({ class: 'plan-freshness muted small' },
+      span({}, `Updated ${relativeTime(input.builtAt)}. Rebuilds automatically when your rankings change.`),
+      btn({ class: 'btn btn-sm plan-refresh', onclick: () => forceRefresh(host, league) }, '↻ Refresh'),
+    ),
     div({ class: 'muted small' }, `Based on ${sources.join(', ')}.`),
     !input.hasRankings
       ? div({ class: 'diag diag-warn' }, '⚠ No rankings profile is assigned to this league, so value-based moves are hidden. Assign one in Setup.')

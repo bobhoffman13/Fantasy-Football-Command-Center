@@ -84,7 +84,9 @@ function persistSettings() {
 export function setSettings(patch) {
   state.settings = { ...state.settings, ...patch };
   persistSettings();
-  emit('settings');
+  // Also emit each changed top-level key as its own channel, so a listener that only
+  // cares about e.g. 'legacyRankings' isn't woken by unrelated settings writes.
+  emit('settings', ...Object.keys(patch));
 }
 
 // Immutable single-key update of a nested settings map.
@@ -96,7 +98,8 @@ export function updateMap(mapName, key, value) {
   else next[key] = value;
   state.settings = { ...state.settings, [mapName]: next };
   persistSettings();
-  emit('settings');
+  // Also emit the map's own name as a channel (see setSettings above).
+  emit('settings', mapName);
 }
 
 // --- global active league ---

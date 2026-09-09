@@ -10,10 +10,12 @@
 // - Settings persist to localStorage; ranking profiles + player cache live in IndexedDB.
 
 import { idbGet, idbSet, idbClearAll } from './lib/idb.js';
+import { mergeWeeklySet, weeklySetUpdatedAt } from './lib/weekly.js';
 import { SEASON_FALLBACK, SNOOZE_DAYS, SNOOZE_LIMIT, SNOOZE_FORGET_DAYS } from './data/constants.js';
 
 const SETTINGS_KEY = 'ffcc:settings';
 const PROFILES_IDB_KEY = 'profiles';
+const WEEKLY_IDB_KEY = 'weeklyRankings';
 
 function defaultSettings() {
   return {
@@ -34,12 +36,15 @@ function defaultSettings() {
     interestPlayers: [],  // Sleeper player IDs to watch (availability + trade targets)
     forSale: [],          // your player IDs flagged willing-to-sell (prioritized in trade recs)
     snoozes: {},          // leagueId -> { actionKey: { n, until } } for the Home action plan
+    weeklyDefaultId: '',  // weekly ranking set applied to every league by default
+    weeklyAssignments: {}, // leagueId -> setId, or WEEKLY_NONE to opt one league out
   };
 }
 
 const state = {
   settings: defaultSettings(),
   profiles: [],            // [{ id, name, type, rows, uploadedAt }]
+  weeklySets: [],          // [{ id, name, files: [{ id, label, week, rows, uploadedAt }] }]
   session: {
     leagues: [],           // raw Sleeper league objects
     nflState: null,
@@ -285,6 +290,133 @@ export async function deleteProfile(id) {
   emit('profiles');
 }
 
+// --- weekly ranking sets (IndexedDB-backed) ---
+//
+// Deliberately a SEPARATE store from ranking profiles. Profiles are assigned per
+// league and feed Free Agents, Trade Finder, Draft, Targets and the Home action
+// plan; weekly rankings must only ever reach the Lineup tab. Keeping them in their
+// own store makes that true by construction instead of by filtering in six views.
+//
+// A set is a bundle of files, because weekly rankings are published split by
+// position group (a flex file and a quarterback file). See lib/weekly.js.
+
+// Sentinel assignment meaning "this league ignores weekly rankings entirely".
+export const WEEKLY_NONE = 'none';
+
+async function persistWeeklySets() {
+  await idbSet(WEEKLY_IDB_KEY, state.weeklySets);
+}
+
+export function getWeeklySets() {
+  return state.weeklySets;
+}
+
+export function getWeeklySetById(id) {
+  return state.weeklySets.find((s) => s.id === id) || null;
+}
+
+function newId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+// file: { label, rows, week }
+export async function addWeeklySet({ name, file }) {
+  const set = {
+    id: newId('w'),
+    name,
+    files: file ? [{ id: newId('f'), label: file.label, week: file.week ?? null, rows: file.rows, uploadedAt: Date.now() }] : [],
+  };
+  state.weeklySets = [...state.weeklySets, set];
+  // The first set created becomes the default, so the common case needs no extra tap.
+  if (!state.settings.weeklyDefaultId) {
+    state.settings = { ...state.settings, weeklyDefaultId: set.id };
+    persistSettings();
+    emit('settings');
+  }
+  await persistWeeklySets();
+  emit('weekly');
+  return set;
+}
+
+// Add or replace a file within a set. A file with the same label replaces the
+// previous one, so re-uploading this week's flex file updates it in place.
+export async function addWeeklyFile(setId, { label, rows, week }) {
+  const entry = { id: newId('f'), label, week: week ?? null, rows, uploadedAt: Date.now() };
+  state.weeklySets = state.weeklySets.map((s) => {
+    if (s.id !== setId) return s;
+    const kept = (s.files || []).filter((f) => f.label !== label);
+    return { ...s, files: [...kept, entry] };
+  });
+  await persistWeeklySets();
+  emit('weekly');
+  return entry;
+}
+
+export async function removeWeeklyFile(setId, fileId) {
+  state.weeklySets = state.weeklySets.map((s) => (
+    s.id === setId ? { ...s, files: (s.files || []).filter((f) => f.id !== fileId) } : s
+  ));
+  await persistWeeklySets();
+  emit('weekly');
+}
+
+export async function renameWeeklySet(setId, name) {
+  state.weeklySets = state.weeklySets.map((s) => (s.id === setId ? { ...s, name } : s));
+  await persistWeeklySets();
+  emit('weekly');
+}
+
+export async function deleteWeeklySet(id) {
+  state.weeklySets = state.weeklySets.filter((s) => s.id !== id);
+  // Clear the default and any league assignments pointing at it, key by key.
+  let settings = state.settings;
+  if (settings.weeklyDefaultId === id) settings = { ...settings, weeklyDefaultId: '' };
+  const next = { ...settings.weeklyAssignments };
+  let changed = false;
+  for (const [lid, sid] of Object.entries(next)) {
+    if (sid === id) { delete next[lid]; changed = true; }
+  }
+  if (changed) settings = { ...settings, weeklyAssignments: next };
+  if (settings !== state.settings) {
+    state.settings = settings;
+    persistSettings();
+    emit('settings');
+  }
+  await persistWeeklySets();
+  emit('weekly');
+}
+
+export function setWeeklyDefault(id) {
+  state.settings = { ...state.settings, weeklyDefaultId: id || '' };
+  persistSettings();
+  emit('settings', 'weekly');
+}
+
+// Resolve which weekly set drives a league's lineup: an explicit per-league
+// assignment wins, then the app-wide default. Returns null when weekly rankings
+// shouldn't apply, in which case the Lineup tab behaves exactly as it did before.
+export function resolveWeeklyForLeague(leagueId) {
+  const s = state.settings;
+  const assigned = (s.weeklyAssignments || {})[leagueId];
+  if (assigned === WEEKLY_NONE) return null;
+  const id = assigned || s.weeklyDefaultId;
+  // Sets live in IndexedDB but the default pointer lives in localStorage, so the two
+  // can drift apart if one store is cleared without the other. With exactly one set
+  // there is no ambiguity about what was meant, so use it rather than silently
+  // dropping back to season rankings.
+  const set = getWeeklySetById(id) || (!id && state.weeklySets.length === 1 ? state.weeklySets[0] : null);
+  if (!set || !(set.files || []).length) return null;
+  const merged = mergeWeeklySet(set);
+  if (!merged.rows.length) return null;
+  return {
+    set,
+    name: set.name,
+    source: assigned ? 'league' : 'default',
+    uploadedAt: weeklySetUpdatedAt(set),
+    ...merged,
+  };
+}
+
 // --- session (ephemeral) ---
 
 export function setSession(patch) {
@@ -324,6 +456,10 @@ export async function loadPersisted() {
     const profiles = await idbGet(PROFILES_IDB_KEY);
     if (Array.isArray(profiles)) state.profiles = profiles;
   } catch { /* ignore */ }
+  try {
+    const weekly = await idbGet(WEEKLY_IDB_KEY);
+    if (Array.isArray(weekly)) state.weeklySets = weekly;
+  } catch { /* ignore */ }
   pruneSnoozes();
 }
 
@@ -336,9 +472,10 @@ export async function clearAllData() {
   await idbClearAll();
   state.settings = defaultSettings();
   state.profiles = [];
+  state.weeklySets = [];
   state.session = { leagues: [], nflState: state.session.nflState, online: state.session.online };
   state.activity = { items: [], unseen: 0, lastPoll: 0 };
-  emit('settings', 'profiles', 'session', 'activity', 'leagues');
+  emit('settings', 'profiles', 'weekly', 'session', 'activity', 'leagues');
 }
 
 // --- backup / restore ---
@@ -353,6 +490,7 @@ export function exportBackup() {
     exportedAt: new Date().toISOString(),
     settings: state.settings,
     profiles: state.profiles,
+    weeklySets: state.weeklySets,
   };
 }
 
@@ -366,7 +504,10 @@ export async function importBackup(data) {
   persistSettings();
   state.profiles = Array.isArray(data.profiles) ? data.profiles : [];
   await persistProfiles();
-  emit('settings', 'profiles', 'targets');
+  // Backups predating weekly rankings simply have no sets to restore.
+  state.weeklySets = Array.isArray(data.weeklySets) ? data.weeklySets : [];
+  await persistWeeklySets();
+  emit('settings', 'profiles', 'weekly', 'targets');
 }
 
 // Ask the browser to keep our storage durable (resists eviction, esp. on iOS Safari).

@@ -214,7 +214,10 @@ async function buildPlanInput(league, isDynasty) {
   const teFactor = 1 + getTePremium(ctx.league) * TE_BUMP_PER_POINT;
 
   const myRosterId = ctx.myRoster?.roster_id ?? null;
-  const myPlayers = (ctx.myRoster?.players || []).map((pid) => describeWithValue(pid, ctx, consensus, teFactor));
+  // Weekly projections are overlaid on your own players only, so the action plan's
+  // start/sit advice matches what the Lineup tab shows instead of contradicting it.
+  const myPlayers = (ctx.myRoster?.players || [])
+    .map((pid) => describeWithValue(pid, ctx, consensus, teFactor, ctx.weekly?.byPlayerId || null));
 
   const opponentPlayers = [];
   for (const r of ctx.rosters) {
@@ -258,6 +261,7 @@ async function buildPlanInput(league, isDynasty) {
     consensus,
     hasRankings: !!ctx.ranking,
     rankingName: ctx.ranking?.name || null,
+    weekly: ctx.weekly || null,
     diagnostic: ctx.diagnostic,
     builtAt: Date.now(),
   };

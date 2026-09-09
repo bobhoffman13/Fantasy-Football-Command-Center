@@ -2,7 +2,7 @@
 
 import { getRosters, getLeagueUsers, getPlayers } from '../api/sleeper.js';
 import { getState } from '../store.js';
-import { getRankingLookup } from './players.js';
+import { getRankingLookup, getWeeklyLookup } from './players.js';
 
 export function findLeague(leagueId) {
   return getState().session.leagues.find((l) => l.league_id === leagueId) || null;
@@ -22,6 +22,9 @@ export async function loadLeagueContext(leagueId, { onProgress } = {}) {
 
   const myRoster = (rosters || []).find((r) => r.owner_id === settings.userId) || null;
   const { ranking, byPlayerId, diagnostic } = getRankingLookup(leagueId, players);
+  // Weekly rankings are resolved here but read ONLY by the Lineup tab. Every other
+  // view keeps using rankingLookup and is unaffected by a weekly upload.
+  const weekly = getWeeklyLookup(leagueId, players);
 
   return {
     league,
@@ -33,6 +36,7 @@ export async function loadLeagueContext(leagueId, { onProgress } = {}) {
     ranking,
     rankingLookup: byPlayerId,
     diagnostic,
+    weekly,
     riskMode: settings.riskMode,
     nflState: getState().session.nflState,
   };

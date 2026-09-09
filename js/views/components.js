@@ -10,6 +10,19 @@ export function rankBadge(rank) {
   return span({ class: `badge tier-${tier.key}`, title: tier.label }, `#${rank}`);
 }
 
+// Weekly badge: the positional rank is what a human actually reasons about on a
+// lineup card ("he's the RB4 this week"), so that leads, with the projection beside it.
+export function weeklyBadge(weekly) {
+  if (!weekly) return span({ class: 'badge badge-unranked', title: 'Not in this week\u2019s rankings' }, 'NR');
+  const label = weekly.posRank != null && weekly.pos ? `${weekly.pos}${weekly.posRank}` : `#${weekly.rank}`;
+  return span({ class: 'badge badge-weekly', title: `Weekly overall #${weekly.rank}` }, label);
+}
+
+export function projBadge(proj) {
+  if (proj == null) return null;
+  return span({ class: 'badge badge-proj', title: 'Projected points this week' }, `${proj.toFixed(1)} pts`);
+}
+
 export function injuryBadge(status) {
   if (!status) return null;
   const cls = status === 'Questionable' ? 'inj-q' : 'inj-out';

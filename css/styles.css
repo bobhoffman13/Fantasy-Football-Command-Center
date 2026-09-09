@@ -449,3 +449,38 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .int-offer-label { font-weight: 700; color: var(--text); }
 .int-remove { min-height: 30px; padding: 2px 9px; font-size: 16px; line-height: 1; color: var(--muted); }
 .int-deal-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin: 2px 0 2px; }
+
+/* --- Weekly rankings: Setup card + Lineup tab --- */
+
+.badge-weekly { background: var(--elite); color: #170a26; }
+.badge-proj { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+
+.weekly-source { padding: 12px 14px; }
+.ws-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+.ws-name { font-weight: 600; }
+
+.weekly-row { display: block; }
+.weekly-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 2px; }
+.weekly-files { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.weekly-file {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 10px;
+}
+.wf-label { font-weight: 600; font-size: 13px; }
+.weekly-file .btn { margin-left: auto; }
+
+/* Changes-to-make rows on the Lineup tab */
+.swap-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.swap-row:last-child { border-bottom: 0; }
+.swap-in, .swap-out { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.swap-tag {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 6px; min-width: 42px; text-align: center;
+}
+.swap-tag.start { background: var(--good); color: #06240f; }
+.swap-tag.sit { background: var(--low); color: var(--text); }
+.swap-why { padding-left: 50px; }

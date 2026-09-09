@@ -15,7 +15,7 @@
 //
 // Pure + deterministic so it can be unit-tested. home.js gathers the live inputs.
 
-import { optimizeLineup } from './lineup.js';
+import { optimizeLineup, weeklyRankOf, pairLineupChanges } from './lineup.js';
 import { starterTargets } from './draftstrategy.js';
 import { computeArbitrage } from './tradevalue.js';
 
@@ -187,7 +187,8 @@ function realWorldNote(p) {
 function lineupOf(ctx) {
   const slots = ctx.league?.roster_positions || [];
   if (!slots.length) return null;
-  return optimizeLineup(ctx.myPlayers, slots);
+  // Match the Lineup tab: when a weekly set applies, order by this week's projections.
+  return optimizeLineup(ctx.myPlayers, slots, ctx.weekly ? { rankOf: weeklyRankOf } : {});
 }
 
 // 1. Starting slots that nothing can fill (bye/injury holes) — free points lost.
@@ -221,16 +222,34 @@ function genLineupSwaps(ctx) {
   const shouldSit = ctx.myPlayers.filter((p) => current.has(p.playerId) && !optimalIds.has(p.playerId));
   if (!shouldStart.length || !shouldSit.length) return [];
 
-  const byRank = (a, b) => (a.rank ?? 99999) - (b.rank ?? 99999);
-  shouldStart.sort(byRank);
-  shouldSit.sort((a, b) => (b.rank ?? 99999) - (a.rank ?? 99999));
+  const isWeekly = !!ctx.weekly;
+  const sortKey = (p) => (isWeekly ? (p.weekly?.rank ?? 99999) : (p.rank ?? 99999));
+  shouldStart.sort((a, b) => sortKey(a) - sortKey(b));
+  shouldSit.sort((a, b) => sortKey(b) - sortKey(a));
 
   const out = [];
-  for (let i = 0; i < Math.min(2, shouldStart.length, shouldSit.length); i++) {
-    const inP = shouldStart[i], outP = shouldSit[i];
-    const gap = (outP.rank ?? 300) - (inP.rank ?? 300);
-    if (gap <= 0) continue;
-    const why = [`Your rankings have ${inP.name} at #${inP.rank ?? '—'} and ${outP.name} at #${outP.rank ?? '—'}.`];
+  // Pair on position eligibility so a recommendation names the player actually
+  // being replaced, and matches what the Lineup tab shows.
+  for (const { inP, outP } of pairLineupChanges(shouldStart, shouldSit).slice(0, 2)) {
+    if (!outP) continue;
+
+    // Weekly sets are ranked by projected points, so the gap is stated in points —
+    // which is what the recommendation actually rests on — rather than rank spots.
+    let gap, detail, why;
+    if (isWeekly) {
+      const a = inP.weekly?.proj, b = outP.weekly?.proj;
+      if (a == null || b == null || a <= b) continue;
+      gap = a - b;
+      const wk = ctx.weekly.week != null ? `week ${ctx.weekly.week}` : 'this week';
+      detail = `${inP.name} projects ${gap.toFixed(1)} more points in ${wk} and is currently on your bench.`;
+      why = [`Your ${wk} projections have ${inP.name} at ${a.toFixed(1)} and ${outP.name} at ${b.toFixed(1)}.`];
+      if (inP.weekly?.opponent) why.push(`${inP.name} draws ${inP.weekly.opponent}.`);
+    } else {
+      gap = (outP.rank ?? 300) - (inP.rank ?? 300);
+      if (gap <= 0) continue;
+      detail = `${inP.name} is ${gap} spots higher in the rankings assigned to this league and is currently on your bench.`;
+      why = [`Your rankings have ${inP.name} at #${inP.rank ?? '—'} and ${outP.name} at #${outP.rank ?? '—'}.`];
+    }
     const rw = realWorldNote(outP);
     if (rw) why.push(`${outP.name} is ${rw}.`);
     out.push({
@@ -238,9 +257,9 @@ function genLineupSwaps(ctx) {
       category: 'lineup',
       horizon: 'now',
       title: `Start ${inP.name} over ${outP.name}`,
-      detail: `${inP.name} is ${gap} spots higher in the rankings assigned to this league and is currently on your bench.`,
+      detail,
       why,
-      nowImpact: clamp(0.55 + gap / 120, 0, 1),
+      nowImpact: clamp(isWeekly ? 0.55 + gap / 12 : 0.55 + gap / 120, 0, 1),
       futureImpact: 0,
       cta: { label: 'Open lineup', view: 'lineup' },
     });

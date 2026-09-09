@@ -6,8 +6,8 @@ import { enrichPlayer } from './players.js';
 
 // Enrich a player id with ranking-derived fields and public consensus. teFactor scales
 // TE consensus values to approximate TE premium (1 = no adjustment / not TE premium).
-export function describeWithValue(id, ctx, consensus, teFactor = 1) {
-  const p = enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode);
+export function describeWithValue(id, ctx, consensus, teFactor = 1, weeklyLookup = null) {
+  const p = enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode, weeklyLookup);
   const c = consensus ? consensus.get(String(id)) || null : null;
   p.consensus = c;
   p.consensusValueAdj = c ? c.value * (p.positions.includes('TE') ? teFactor : 1) : null;

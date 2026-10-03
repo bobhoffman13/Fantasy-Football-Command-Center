@@ -163,3 +163,17 @@ test('clear all data removes weekly sets', async () => {
   assert.equal(getWeeklySets().length, 0);
   assert.equal(getState().settings.weeklyDefaultId, '');
 });
+
+test('TE premium is added to the default set only, never to a per-league set', async () => {
+  const { getWeeklyLookup } = await import('../js/lib/players.js');
+  await reset();
+  const te = [{ name: 'Tight End', pos: 'TE', team: 'DET', proj: 10 }];
+  const def = await addWeeklySet({ name: 'Half PPR', file: { label: 'TE', rows: te, week: 1 } });
+  const special = await addWeeklySet({ name: 'TE Premium file', file: { label: 'TE', rows: te, week: 1 } });
+  assert.equal(getState().settings.weeklyDefaultId, def.id);
+  updateMap('weeklyAssignments', 'L2', special.id);
+
+  assert.equal(getWeeklyLookup('L1', {}, 0.5).rows[0].proj, 12.5);  // default: boosted
+  assert.equal(getWeeklyLookup('L1', {}, 0).rows[0].proj, 10);      // non-TEP league: untouched
+  assert.equal(getWeeklyLookup('L2', {}, 0.5).rows[0].proj, 10);    // per-league file taken as-is
+});

@@ -41,16 +41,7 @@ export function mergeWeeklySet(set) {
     }
   }
 
-  const rows = [...byKey.values()].sort((a, b) => (b.proj ?? -Infinity) - (a.proj ?? -Infinity));
-
-  // Overall rank across the whole set, plus rank within each position.
-  const posCounters = new Map();
-  rows.forEach((row, i) => {
-    row.rank = i + 1;
-    const n = (posCounters.get(row.pos) || 0) + 1;
-    posCounters.set(row.pos, n);
-    row.posRank = n;
-  });
+  const { rows, posCounters } = rankByProjection([...byKey.values()]);
 
   // A set's week is whichever week its files agree on; disagreement is reported
   // so the UI can warn rather than silently mixing two weeks of projections.
@@ -63,6 +54,52 @@ export function mergeWeeklySet(set) {
     positions: [...posCounters.keys()].filter(Boolean).sort(),
     countsByPosition: Object.fromEntries(posCounters),
   };
+}
+
+// Sort by projection, then assign overall rank plus rank within each position.
+// Mutates the rows it is given; callers pass fresh copies.
+function rankByProjection(input) {
+  const rows = input.sort((a, b) => (b.proj ?? -Infinity) - (a.proj ?? -Infinity));
+  const posCounters = new Map();
+  rows.forEach((row, i) => {
+    row.rank = i + 1;
+    const n = (posCounters.get(row.pos) || 0) + 1;
+    posCounters.set(row.pos, n);
+    row.posRank = n;
+  });
+  return { rows, posCounters };
+}
+
+// TE premium: published weekly rankings never include it, so a TE-premium league
+// adds bonus_rec_te for every projected TE reception on our side.
+//
+// Most files don't carry projected receptions, so when a row has none they are
+// estimated from the projection itself. A half-PPR TE catch is worth about 2 points
+// (0.5 for the catch, ~1.05 for ~10.5 yards, ~0.4 of touchdown equity), which puts
+// receptions at roughly half the projected points. Close enough to rank TEs fairly
+// against flex options; an exact receptions column is used whenever a file has one.
+export const TE_REC_PER_POINT = 0.5;
+
+// merged: mergeWeeklySet() output. bonus: points per TE reception (0 = no change).
+// Returns a new merged set with TE projections raised and every rank recomputed,
+// since a boosted TE can overtake a WR or RB for a FLEX spot.
+export function applyTePremium(merged, bonus) {
+  if (!merged || !(bonus > 0)) return merged;
+  const adjusted = merged.rows.map((row) => {
+    if (row.pos !== 'TE' || row.proj == null) return { ...row };
+    const estimated = row.rec == null;
+    const rec = estimated ? row.proj * TE_REC_PER_POINT : row.rec;
+    const tePremium = Math.round(rec * bonus * 10) / 10;
+    return {
+      ...row,
+      projBase: row.proj,
+      proj: Math.round((row.proj + tePremium) * 10) / 10,
+      tePremium,
+      tePremiumEstimated: estimated,
+    };
+  });
+  const { rows } = rankByProjection(adjusted);
+  return { ...merged, rows, tePremium: bonus };
 }
 
 // Latest upload time across a set's files — drives staleness display and cache keys.

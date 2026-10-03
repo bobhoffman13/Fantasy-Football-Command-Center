@@ -3,6 +3,7 @@
 import { getRosters, getLeagueUsers, getPlayers } from '../api/sleeper.js';
 import { getState } from '../store.js';
 import { getRankingLookup, getWeeklyLookup } from './players.js';
+import { getTePremium } from '../api/fantasycalc.js';
 
 export function findLeague(leagueId) {
   return getState().session.leagues.find((l) => l.league_id === leagueId) || null;
@@ -24,7 +25,7 @@ export async function loadLeagueContext(leagueId, { onProgress } = {}) {
   const { ranking, byPlayerId, diagnostic } = getRankingLookup(leagueId, players);
   // Weekly rankings are resolved here but read ONLY by the Lineup tab. Every other
   // view keeps using rankingLookup and is unaffected by a weekly upload.
-  const weekly = getWeeklyLookup(leagueId, players);
+  const weekly = getWeeklyLookup(leagueId, players, getTePremium(league));
 
   return {
     league,

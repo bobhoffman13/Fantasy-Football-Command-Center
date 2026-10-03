@@ -2,6 +2,7 @@
 
 import { buildRankingLookup } from './match.js';
 import { evaluateStartability } from './lineup.js';
+import { applyTePremium } from './weekly.js';
 import { resolveRankingForLeague, resolveWeeklyForLeague } from '../store.js';
 
 // Memoize ranking lookups so we don't re-run fuzzy matching on every render.
@@ -23,10 +24,15 @@ export function getRankingLookup(leagueId, playersMap) {
 
 // Weekly rankings for a league, or null. Kept separate from the season lookup so
 // that only the Lineup tab (which asks for it explicitly) can ever see it.
-export function getWeeklyLookup(leagueId, playersMap) {
-  const weekly = resolveWeeklyForLeague(leagueId);
-  if (!weekly) return null;
-  const key = `${weekly.set.id}:${weekly.uploadedAt}:${weekly.rows.length}`;
+//
+// tePremium: the league's bonus per TE reception. Applied only to the default set,
+// which is the generic (half-PPR) file; a per-league set exists precisely because
+// it was uploaded to match that league's scoring, so it is taken as-is.
+export function getWeeklyLookup(leagueId, playersMap, tePremium = 0) {
+  const resolved = resolveWeeklyForLeague(leagueId);
+  if (!resolved) return null;
+  const weekly = resolved.source === 'default' ? applyTePremium(resolved, tePremium) : resolved;
+  const key = `${weekly.set.id}:${weekly.uploadedAt}:${weekly.rows.length}:${weekly.tePremium || 0}`;
   let entry = weeklyCache.get(key);
   if (!entry) {
     entry = buildRankingLookup(weekly.rows, playersMap);
@@ -109,6 +115,9 @@ export function enrichPlayer(id, playersMap, rankingLookup, nflState, riskMode, 
       pos: weeklyRow.pos || '',
       posRank: weeklyRow.posRank,
       proj: weeklyRow.proj,
+      projBase: weeklyRow.projBase ?? weeklyRow.proj,
+      tePremium: weeklyRow.tePremium || 0,
+      tePremiumEstimated: !!weeklyRow.tePremiumEstimated,
       opponent: weeklyRow.opponent || '',
       oppRankVsPos: weeklyRow.oppRankVsPos,
       impliedTotal: weeklyRow.impliedTotal,

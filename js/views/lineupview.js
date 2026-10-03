@@ -93,6 +93,11 @@ function sourceBanner(weekly, ctx) {
       div({ class: 'muted small' },
         `Ranked by projected points · ${weekly.rows.length} players · ${scope} · `
         + `uploaded ${daysSince(weekly.uploadedAt)}d ago`),
+      weekly.tePremium
+        ? div({ class: 'muted small' },
+          `TE premium: +${weekly.tePremium} per TE reception added to TE projections (marked *). `
+          + (weekly.rows.some((r) => r.tePremiumEstimated) ? 'Receptions estimated from projected points.' : ''))
+        : null,
     );
   }
   const name = ctx.ranking?.name;
@@ -162,10 +167,10 @@ function lineupChanges(starters, players, currentStarters, isWeekly) {
   for (const { inP, outP } of pairLineupChanges(bringIn, sitDown)) {
     rows.push(div({ class: 'swap-row' },
       div({ class: 'swap-in' }, span({ class: 'swap-tag start' }, 'START'), span({ class: 'pr-name' }, inP.name),
-        isWeekly ? projBadge(inP.weekly?.proj) : rankBadge(inP.rank)),
+        isWeekly ? projBadge(inP.weekly) : rankBadge(inP.rank)),
       outP
         ? div({ class: 'swap-out' }, span({ class: 'swap-tag sit' }, 'SIT'), span({ class: 'pr-name' }, outP.name),
-            isWeekly ? projBadge(outP.weekly?.proj) : rankBadge(outP.rank))
+            isWeekly ? projBadge(outP.weekly) : rankBadge(outP.rank))
         : div({ class: 'swap-out muted small' }, 'fills an empty slot'),
       reasonLine(inP, outP, isWeekly),
     ));
@@ -206,7 +211,7 @@ function slotRow({ slot, player }, isWeekly) {
     player
       ? div({ class: 'row-badges' },
           injuryBadge(player.injuryStatus),
-          isWeekly ? projBadge(player.weekly?.proj) : null,
+          isWeekly ? projBadge(player.weekly) : null,
           isWeekly ? weeklyBadge(player.weekly) : rankBadge(player.rank))
       : null,
   );
@@ -222,7 +227,7 @@ function playerLine(p, isWeekly) {
     ),
     div({ class: 'row-badges' },
       byeBadge(p.onBye, p.byeWeek), injuryBadge(p.injuryStatus),
-      isWeekly ? projBadge(p.weekly?.proj) : null,
+      isWeekly ? projBadge(p.weekly) : null,
       isWeekly ? weeklyBadge(p.weekly) : rankBadge(p.rank)),
   );
 }

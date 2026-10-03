@@ -161,3 +161,50 @@ test('name suffixes collapse so one player cannot appear twice', () => {
 test('weeklySetUpdatedAt reports the newest file', () => {
   assert.equal(weeklySetUpdatedAt(buildSet()), 2000);
 });
+
+// --- TE premium ---
+
+import { applyTePremium, TE_REC_PER_POINT } from '../js/lib/weekly.js';
+
+const flexSet = () => mergeWeeklySet({ files: [
+  { id: 'f', label: 'Flex', rows: parseWeeklyRankingsCsv(FLEX).rows, week: 1, uploadedAt: 1 },
+] });
+
+test('TE premium: no bonus leaves the set untouched', () => {
+  const m = flexSet();
+  assert.equal(applyTePremium(m, 0), m);
+});
+
+test('TE premium: estimates receptions and raises only TE projections', () => {
+  const m = flexSet();
+  const adj = applyTePremium(m, 0.5);
+  const before = m.rows.find((r) => r.name === 'Brock Bowers');
+  const after = adj.rows.find((r) => r.name === 'Brock Bowers');
+  assert.equal(after.projBase, 12.8);
+  assert.equal(after.tePremium, Math.round(12.8 * TE_REC_PER_POINT * 0.5 * 10) / 10); // 3.2
+  assert.equal(after.proj, 16.0);
+  assert.equal(after.tePremiumEstimated, true);
+  assert.ok(after.rank < before.rank, 'boosted TE climbs the overall ranking');
+  assert.equal(after.posRank, before.posRank, 'TE order among TEs is unchanged');
+
+  const gibbs = adj.rows.find((r) => r.name === 'Jahmyr Gibbs');
+  assert.equal(gibbs.proj, 24.8);
+  assert.equal(gibbs.tePremium, undefined);
+
+  // Ranks stay a clean 1..n ordered by projection.
+  adj.rows.forEach((r, i) => assert.equal(r.rank, i + 1));
+  for (let i = 1; i < adj.rows.length; i++) assert.ok(adj.rows[i - 1].proj >= adj.rows[i].proj);
+  // Input set is not mutated.
+  assert.equal(before.proj, 12.8);
+});
+
+test('TE premium: uses a receptions column when the file has one', () => {
+  const csv = 'Name,Position,Projected Points,Receptions\nTight End,TE,10,6.2\nWide Out,WR,12,7\n';
+  const parsed = parseWeeklyRankingsCsv(csv);
+  assert.equal(parsed.rows[0].rec, 6.2);
+  const adj = applyTePremium(mergeWeeklySet({ files: [{ id: 'a', rows: parsed.rows, uploadedAt: 1 }] }), 0.5);
+  const te = adj.rows.find((r) => r.pos === 'TE');
+  assert.equal(te.proj, 13.1);
+  assert.equal(te.tePremiumEstimated, false);
+  assert.equal(te.rank, 1); // overtakes the WR
+});

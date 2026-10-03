@@ -27,6 +27,8 @@ const WEEKLY_ALIASES = {
   name: COLUMN_ALIASES.name,
   pos: COLUMN_ALIASES.pos,
   team: COLUMN_ALIASES.team,
+  // Projected receptions, when a file has them: lets TE premium be exact instead of estimated.
+  rec: ['receptions', 'rec', 'recs', 'proj_rec', 'projected_receptions', 'receiving_receptions'],
   proj: ['projected_points', 'proj_pts', 'projected', 'projection', 'projections', 'proj', 'fpts', 'points', 'pts'],
   week: ['week', 'wk'],
   opponent: ['opponent', 'opp', 'vs'],
@@ -188,6 +190,7 @@ export function parseWeeklyRankingsCsv(text) {
       pos: colMap.pos != null ? (cells[colMap.pos] || '').toUpperCase().trim() : '',
       team: colMap.team != null ? (cells[colMap.team] || '').toUpperCase().trim() : '',
       proj,
+      rec: colMap.rec != null ? num(cells[colMap.rec]) : null,
       opponent: colMap.opponent != null ? (cells[colMap.opponent] || '').toUpperCase().trim() : '',
       oppRankVsPos: colMap.oppRankVsPos != null ? num(cells[colMap.oppRankVsPos]) : null,
       oppVsPos: colMap.oppVsPos != null ? num(cells[colMap.oppVsPos]) : null,

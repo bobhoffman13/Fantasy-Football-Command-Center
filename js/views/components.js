@@ -18,9 +18,16 @@ export function weeklyBadge(weekly) {
   return span({ class: 'badge badge-weekly', title: `Weekly overall #${weekly.rank}` }, label);
 }
 
-export function projBadge(proj) {
+// Accepts a number or a player's `weekly` object; the latter explains a TE-premium bump.
+export function projBadge(projOrWeekly) {
+  const w = projOrWeekly != null && typeof projOrWeekly === 'object' ? projOrWeekly : null;
+  const proj = w ? w.proj : projOrWeekly;
   if (proj == null) return null;
-  return span({ class: 'badge badge-proj', title: 'Projected points this week' }, `${proj.toFixed(1)} pts`);
+  const title = w?.tePremium
+    ? `Projected points this week: ${w.projBase.toFixed(1)} + ${w.tePremium.toFixed(1)} TE premium`
+      + (w.tePremiumEstimated ? ' (receptions estimated)' : '')
+    : 'Projected points this week';
+  return span({ class: 'badge badge-proj', title }, `${proj.toFixed(1)} pts${w?.tePremium ? '*' : ''}`);
 }
 
 export function injuryBadge(status) {

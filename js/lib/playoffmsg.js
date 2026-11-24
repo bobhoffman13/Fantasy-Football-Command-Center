@@ -121,6 +121,9 @@ export function buildLeagueUpdate({ leagueName, model, ranked, analysis, odds, t
     lines.push('', `👑 = division leader · ${how}`);
   }
 
+  if (analysis && model.median && !complete) {
+    lines.push('', 'Median league: “Win”/“Loss” in scenarios = the head-to-head game; they hold no matter how the median games go.');
+  }
   lines.push('');
   const foot = [`Tiebreaker: ${TIEBREAKERS[tiebreaker]?.label.toLowerCase() || 'points for'}`];
   if (odds && !complete) foot.push(`odds from ${odds.iterations.toLocaleString('en-US')} sims`);

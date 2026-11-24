@@ -130,9 +130,9 @@ which is the one number comparable across positions.
     "if tiebreakers hold". Playoff and bye odds come from 10,000 simulated seasons. The tiebreaker
     (points for / head-to-head / points against) is set per league. **Division leagues** are supported:
     division winners take the top seeds by default (or "guaranteed spot, seeded by record", or
-    "ignore divisions" — set per league), and their exact math checks every possible result of
-    every remaining game (available once 18 or fewer games remain, i.e. the last ~3 weeks of a
-    12-team league; odds are always shown). A **What each team needs** breakdown lists, for every team still alive, the exact
+    "ignore divisions" — set per league). Division titles are folded into the same exact
+    schedule-aware checks, so division leagues — including ones that also play a weekly
+    **median** game — get the full breakdown at any point in the season. A **What each team needs** breakdown lists, for every team still alive, the exact
     combinations of this week's results that clinch or eliminate it (NFL "clinches with: Win + X beats Y"
     style, checked against every possible outcome), plus the path if it can't clinch this week.
     One tap copies a whole-league **playoff update**, including that breakdown, for Sleeper chat.

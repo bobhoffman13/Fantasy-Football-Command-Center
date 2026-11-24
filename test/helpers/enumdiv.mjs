@@ -1,4 +1,8 @@
-// Exact playoff math for DIVISION leagues.
+// TEST ORACLE: exhaustive playoff math for division leagues (no median game).
+//
+// The app uses the flow-based goal engine in js/lib/playoffs.js for division leagues. This
+// file plays out EVERY remaining result instead, which is exact but only feasible for small
+// schedules — so the tests use it to verify the app's engine.
 //
 // "Division winner is automatically in" can't be expressed in the max-flow model used for
 // normal leagues, so here we simply play out every remaining result (2^games outcomes).
@@ -13,7 +17,7 @@
 
 import {
   currentStandings, divisionLeaders, buildScenarioLists, MAX_SCENARIO_GAMES, DEFAULT_TIEBREAKER,
-} from './playoffs.js';
+} from '../../js/lib/playoffs.js';
 
 export const MAX_ENUM_GAMES = 18; // 2^18 = 262,144 outcomes
 

@@ -13,7 +13,6 @@
 // direction for both checks — it can miss a clinch/elimination, never invent one.
 
 import { FlowGraph } from './maxflow.js';
-import { analyzeDivisionRace, divisionUnsupported } from './playoffdiv.js';
 
 export const TIEBREAKERS = {
   pf: { label: 'Points for', desc: 'More total points scored wins the tie (Sleeper default)' },
@@ -218,13 +217,16 @@ export function currentStandings(model, tiebreaker = DEFAULT_TIEBREAKER, divisio
   return seedTeams(rankTeams(model.teams, tiebreaker, modelH2hFn(model)), model, divisionMode);
 }
 
+// Division math uses 32-bit team masks.
+function divisionUnsupported(model) {
+  return model.teams.length > 30;
+}
+
 // Why exact scenarios can't be computed for this league (null = they can).
 export function unsupportedReason(model, divisionMode = DEFAULT_DIVISION_MODE) {
   if (model.scheduleIncomplete) return 'Sleeper didn’t return the remaining schedule, so clinch scenarios and odds are unavailable.';
-  if (model.divisions && divisionMode !== 'none' && !model.complete) {
-    const why = divisionUnsupported(model);
-    if (why === 'median') return 'Clinch scenarios aren’t available for division leagues that also play a weekly median game.';
-    if (why === 'too_many') return 'Too many games left to check every outcome in a division league — exact clinch scenarios start in the last few weeks of the regular season. Odds are still shown.';
+  if (model.divisions && divisionMode !== 'none' && !model.complete && divisionUnsupported(model)) {
+    return 'Clinch scenarios aren’t available for division leagues with more than 30 teams.';
   }
   return null;
 }
@@ -306,6 +308,9 @@ function applyPlan(ctx, x, plan, fixed = null) {
 }
 
 // Can every team in S reach `target` win points simultaneously?
+// The flow runs in whole WINS (one per game, one median win per team per week): exact-score
+// ties are possible in Sleeper but vanishingly rare, and allowing fractional splits would
+// invent "knock-out" paths that need two games to end dead even.
 function canAllReach(ctx, st, x, S, target) {
   const inS = new Map(S.map((t, k) => [t, k]));
   const games = st.free.filter((g) => inS.has(g.i) || inS.has(g.j));
@@ -318,16 +323,16 @@ function canAllReach(ctx, st, x, S, target) {
   const G = new FlowGraph(sink + 1);
   let need = 0;
   games.forEach((g, k) => {
-    G.addEdge(src, g0 + k, 2);
-    if (inS.has(g.i)) G.addEdge(g0 + k, t0 + inS.get(g.i), 2);
-    if (inS.has(g.j)) G.addEdge(g0 + k, t0 + inS.get(g.j), 2);
+    G.addEdge(src, g0 + k, 1);
+    if (inS.has(g.i)) G.addEdge(g0 + k, t0 + inS.get(g.i), 1);
+    if (inS.has(g.j)) G.addEdge(g0 + k, t0 + inS.get(g.j), 1);
   });
   for (let wi = 0; wi < W; wi++) {
-    G.addEdge(src, w0 + wi, st.medianSupply[wi]);
-    for (let k = 0; k < S.length; k++) G.addEdge(w0 + wi, t0 + k, 2);
+    G.addEdge(src, w0 + wi, st.medianSupply[wi] / 2);
+    for (let k = 0; k < S.length; k++) G.addEdge(w0 + wi, t0 + k, 1);
   }
   S.forEach((t, k) => {
-    const d = target - st.base[t];
+    const d = Math.ceil((target - st.base[t]) / 2); // wins needed
     need += d;
     G.addEdge(t0 + k, sink, d);
   });
@@ -347,20 +352,21 @@ function canContain(ctx, st, x, allowed, target) {
   const G = new FlowGraph(sink + 1);
   let total = 0;
   games.forEach((g, k) => {
-    G.addEdge(src, g0 + k, 2);
-    G.addEdge(g0 + k, t0 + g.i, 2);
-    G.addEdge(g0 + k, t0 + g.j, 2);
-    total += 2;
+    G.addEdge(src, g0 + k, 1);
+    G.addEdge(g0 + k, t0 + g.i, 1);
+    G.addEdge(g0 + k, t0 + g.j, 1);
+    total += 1;
   });
   for (let wi = 0; wi < W; wi++) {
-    G.addEdge(src, w0 + wi, st.medianSupply[wi]);
-    total += st.medianSupply[wi];
-    for (let t = 0; t < ctx.n; t++) if (t !== x) G.addEdge(w0 + wi, t0 + t, 2);
+    const wins = st.medianSupply[wi] / 2;
+    G.addEdge(src, w0 + wi, wins);
+    total += wins;
+    for (let t = 0; t < ctx.n; t++) if (t !== x) G.addEdge(w0 + wi, t0 + t, 1);
   }
   const BIG = 1e6;
   for (let t = 0; t < ctx.n; t++) {
     if (t === x) continue;
-    const cap = allowed.has(t) ? BIG : target - 1 - st.base[t];
+    const cap = allowed.has(t) ? BIG : Math.floor((target - 1 - st.base[t]) / 2); // wins allowed
     G.addEdge(t0 + t, sink, cap);
   }
   return G.maxFlow(src, sink) === total;
@@ -408,6 +414,125 @@ export function canFinishInside(ctx, x, plan, k, tiesFavor, fixed = null) {
   return { result: false, approx: false };
 }
 
+// --- goal-based checks (division leagues) ---------------------------------------------
+//
+// With divisions, "k teams above you" is no longer the whole story: who's above you matters
+// (a division winner takes its own spot). But whether a team makes it still depends ONLY on
+// the set A of other teams finishing above it — how many, and which divisions they cover —
+// and adding teams to A can never help. So the same flow checks work: look for a minimal
+// set A that knocks the team out and test whether all of A can get there together (or a
+// maximal harmless A that can contain everyone else). A is a bitmask of team indexes.
+
+const MAX_GOAL_CANDIDATES = 14;
+const maskOrderCache = new Map();
+function masksBySize(c, descending) {
+  const key = c * 2 + (descending ? 1 : 0);
+  if (!maskOrderCache.has(key)) {
+    const all = Array.from({ length: 1 << c }, (_, m) => m);
+    all.sort((a, b) => (descending ? popcount(b) - popcount(a) : popcount(a) - popcount(b)));
+    maskOrderCache.set(key, all);
+  }
+  return maskOrderCache.get(key);
+}
+
+function teamMasks(cands) {
+  const c = cands.length;
+  const tm = new Int32Array(1 << c);
+  for (let m = 1; m < 1 << c; m++) {
+    const low = m & -m;
+    tm[m] = tm[m ^ low] | (1 << cands[31 - Math.clz32(low)]);
+  }
+  return tm;
+}
+
+// Goal predicates for team x: A (bitmask of OTHER teams above x) -> does x still get it?
+export function divisionGoals(model, ctx, x, mode) {
+  const { spots, byes } = model;
+  const divIds = [...new Set(model.teams.map((t) => t.division))];
+  const D = divIds.length;
+  const wild = Math.max(0, spots - D);
+  const divMask = new Int32Array(D);
+  model.teams.forEach((t, i) => { if (i !== x) divMask[divIds.indexOf(t.division)] |= 1 << i; });
+  const dx = divIds.indexOf(model.teams[x].division);
+  const split = (A) => {
+    let hit = 0;
+    for (let d = 0; d < D; d++) if (A & divMask[d]) hit++;
+    return { xWinsDiv: !(A & divMask[dx]), winnersBefore: hit, othersBefore: popcount(A) - hit };
+  };
+  const inGoal = (A) => { const s = split(A); return s.xWinsDiv || s.othersBefore < wild; };
+  return {
+    in: inGoal,
+    bye: (A) => {
+      if (!byes || !inGoal(A)) return false;
+      const s = split(A);
+      const seed = mode === 'top'
+        ? (s.xWinsDiv ? 1 + s.winnersBefore : D + 1 + s.othersBefore)
+        : 1 + s.winnersBefore + Math.min(s.othersBefore, wild);
+      return seed <= byes;
+    },
+    div: (A) => !(A & divMask[dx]),
+  };
+}
+
+// Is there ANY outcome (given x's plan) where x misses the goal?
+export function canMissGoal(ctx, x, plan, goal, tiesHurt, fixed = null) {
+  const st = applyPlan(ctx, x, plan, fixed);
+  const target = tiesHurt ? st.base[x] : st.base[x] + 1;
+  let forced = 0;
+  const cands = [];
+  for (let t = 0; t < ctx.n; t++) {
+    if (t === x) continue;
+    if (st.base[t] >= target) forced |= 1 << t;
+    else if (st.base[t] + st.maxGain[t] >= target) cands.push(t);
+  }
+  if (!goal(forced)) return { result: true, approx: false };
+  if (cands.length > MAX_GOAL_CANDIDATES) return { result: true, approx: true };
+  cands.sort((a, b) => (st.base[b] + st.maxGain[b]) - (st.base[a] + st.maxGain[a]));
+  const tm = teamMasks(cands);
+  let checked = 0;
+  for (const m of masksBySize(cands.length, false)) {
+    if (goal(forced | tm[m])) continue;
+    let minimal = true; // a smaller knock-out set was already tried
+    for (let b = m; b && minimal; b &= b - 1) if (!goal(forced | tm[m ^ (b & -b)])) minimal = false;
+    if (!minimal) continue;
+    if (++checked > COMBO_LIMIT) return { result: true, approx: true };
+    const S = cands.filter((_, i) => m & (1 << i));
+    if (canAllReach(ctx, st, x, S, target)) return { result: true, approx: false };
+  }
+  return { result: false, approx: false };
+}
+
+// Is there ANY outcome (given x's plan) where x achieves the goal?
+export function canMeetGoal(ctx, x, plan, goal, tiesFavor, fixed = null) {
+  const st = applyPlan(ctx, x, plan, fixed);
+  const target = tiesFavor ? st.base[x] + 1 : st.base[x];
+  let forced = 0;
+  const threats = [];
+  for (let t = 0; t < ctx.n; t++) {
+    if (t === x) continue;
+    if (st.base[t] >= target) forced |= 1 << t;
+    else if (st.base[t] + st.maxGain[t] >= target) threats.push(t);
+  }
+  if (!goal(forced)) return { result: false, approx: false };
+  if (threats.length > MAX_GOAL_CANDIDATES) return { result: true, approx: true };
+  threats.sort((a, b) => (st.base[b] + st.maxGain[b]) - (st.base[a] + st.maxGain[a]));
+  const tm = teamMasks(threats);
+  const full = (1 << threats.length) - 1;
+  let checked = 0;
+  for (const m of masksBySize(threats.length, true)) {
+    const A = forced | tm[m];
+    if (!goal(A)) continue;
+    let maximal = true; // a larger harmless set was already tried
+    for (let b = full & ~m; b && maximal; b &= b - 1) if (goal(A | tm[b & -b])) maximal = false;
+    if (!maximal) continue;
+    if (++checked > COMBO_LIMIT) return { result: true, approx: true };
+    const allowed = new Set();
+    for (let t = 0; t < ctx.n; t++) if (A & (1 << t)) allowed.add(t);
+    if (canContain(ctx, st, x, allowed, target)) return { result: true, approx: false };
+  }
+  return { result: false, approx: false };
+}
+
 // --- per-team analysis -----------------------------------------------------------------
 
 function planOf(weeks, fn) {
@@ -442,33 +567,51 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER, divisionMode
   if (model.scheduleIncomplete) return null;
   const ranked = currentStandings(model, tiebreaker, divisionMode);
   if (model.complete) return finalStatuses(model, ranked);
-  if (model.divisions && divisionMode !== 'none') return analyzeDivisionRace(model, tiebreaker, divisionMode);
+  const useDivisions = model.divisions && divisionMode !== 'none';
+  if (useDivisions && divisionUnsupported(model)) return null;
 
   const ctx = makeContext(model);
   const { spots, byes } = model;
   const W = ctx.weeks;
   const out = new Map();
   const seedOf = new Map(ranked.map((t, i) => [t.rosterId, i + 1]));
+  const leaders = useDivisions ? divisionLeaders(model, tiebreaker) : new Set();
+  const lastIn = (() => {
+    if (!useDivisions) return ranked[spots - 1];
+    const wildIn = ranked.slice(0, spots).filter((t) => !leaders.has(t.rosterId));
+    return wildIn[wildIn.length - 1] || ranked[spots - 1];
+  })();
 
   for (const team of model.teams) {
     const x = ctx.index.get(team.rosterId);
     let approx = false;
-    const outside = (plan, k, tiesHurt) => { const r = canFinishOutside(ctx, x, plan, k, tiesHurt); approx ||= r.approx; return r.result; };
-    const inside = (plan, k, tiesFavor) => { const r = canFinishInside(ctx, x, plan, k, tiesFavor); approx ||= r.approx; return r.result; };
+    // outside(plan, goal, tiesHurt, fixed): can x miss `goal` ('in' | 'bye' | 'div')?
+    // inside(plan, goal, tiesFavor, fixed): can x still achieve it?
+    let outside;
+    let inside;
+    if (useDivisions) {
+      const goals = divisionGoals(model, ctx, x, divisionMode);
+      outside = (plan, g, tiesHurt, fixed) => { const r = canMissGoal(ctx, x, plan, goals[g], tiesHurt, fixed); approx ||= r.approx; return r.result; };
+      inside = (plan, g, tiesFavor, fixed) => { const r = canMeetGoal(ctx, x, plan, goals[g], tiesFavor, fixed); approx ||= r.approx; return r.result; };
+    } else {
+      const k = (g) => (g === 'bye' ? byes : spots);
+      outside = (plan, g, tiesHurt, fixed) => { const r = canFinishOutside(ctx, x, plan, k(g), tiesHurt, fixed); approx ||= r.approx; return r.result; };
+      inside = (plan, g, tiesFavor, fixed) => { const r = canFinishInside(ctx, x, plan, k(g), tiesFavor, fixed); approx ||= r.approx; return r.result; };
+    }
 
     const allL = planOf(W, () => 'L');
     const allW = planOf(W, () => 'W');
     const seed = seedOf.get(team.rosterId);
-    const a = { rosterId: team.rosterId, seed, hedged: false, final: false, weeksLeft: W };
+    const a = { rosterId: team.rosterId, seed, hedged: false, final: false, weeksLeft: W, median: model.median };
 
-    const clinch = !outside(allL, spots, true);
-    const clinchTB = clinch || !outside(allL, spots, false);
-    const byeClinch = byes > 0 && !outside(allL, byes, true);
-    const byeClinchTB = byes > 0 && (byeClinch || !outside(allL, byes, false));
-    const winOut = clinch || !outside(allW, spots, true);
-    const winOutTB = winOut || !outside(allW, spots, false);
-    const elim = !inside(allW, spots, true);
-    const aliveOnlyViaTB = !elim && !inside(allW, spots, false);
+    const clinch = !outside(allL, 'in', true);
+    const clinchTB = clinch || !outside(allL, 'in', false);
+    const byeClinch = byes > 0 && !outside(allL, 'bye', true);
+    const byeClinchTB = byes > 0 && (byeClinch || !outside(allL, 'bye', false));
+    const winOut = clinch || !outside(allW, 'in', true);
+    const winOutTB = winOut || !outside(allW, 'in', false);
+    const elim = !inside(allW, 'in', true);
+    const aliveOnlyViaTB = !elim && !inside(allW, 'in', false);
 
     if (byeClinchTB) { a.status = 'clinched_bye'; a.hedged = !byeClinch; }
     else if (clinchTB) { a.status = 'clinched'; a.hedged = !clinch; }
@@ -477,13 +620,17 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER, divisionMode
     else a.status = seed <= spots ? 'bubble' : 'hunt';
     a.aliveOnlyViaTB = aliveOnlyViaTB;
     a.inClinched = clinch; // playoff spot certain (a hedged bye can still have a certain spot)
+    if (useDivisions) {
+      a.divLeader = leaders.has(team.rosterId);
+      a.divClinched = !outside(allL, 'div', true);
+    }
 
     // "Win your next j and you're in" — smallest j that clinches regardless of the rest.
     if (a.status === 'control') {
       a.winNext = W;
       for (let j = 1; j < W; j++) {
         const plan = planOf(W, (i) => (i < j ? 'W' : 'L'));
-        if (!outside(plan, spots, !a.hedged)) { a.winNext = j; break; }
+        if (!outside(plan, 'in', !a.hedged)) { a.winNext = j; break; }
       }
     }
 
@@ -492,43 +639,44 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER, divisionMode
       const winThis = planOf(W, (i) => (i === 0 ? 'W' : 'L'));
       const loseThis = planOf(W, (i) => (i === 0 ? 'L' : 'W'));
       a.pivotal = {
-        winIn: !outside(winThis, spots, true),
-        winInTB: !outside(winThis, spots, false),
-        loseOut: !inside(loseThis, spots, true),
+        winIn: !outside(winThis, 'in', true),
+        winInTB: !outside(winThis, 'in', false),
+        loseOut: !inside(loseThis, 'in', true),
       };
     }
 
-    // Schedule-free magic / tragic numbers (conventional, conservative).
-    const others = model.teams.filter((t) => t.rosterId !== team.rosterId);
-    const remainingFor = (t) => {
-      const i = ctx.index.get(t.rosterId);
-      let g = 0;
-      for (const gm of ctx.games) if (gm.i === i || gm.j === i) g += 1;
-      return g + (ctx.median ? W : 0);
-    };
-    const myMax = team.wp + 2 * remainingFor(team);
-    if (a.status !== 'clinched' && a.status !== 'clinched_bye' && others.length >= spots) {
-      const byMax = others.map((t) => ({ t, max: t.wp + 2 * remainingFor(t) })).sort((p, q) => q.max - p.max);
-      const rival = byMax[spots - 1];
-      a.magic = gamesFromPoints(rival.max - team.wp + 1);
-      a.magicRival = rival.t.name;
+    // Schedule-free magic / tragic numbers (conventional; not meaningful with divisions).
+    if (!useDivisions) {
+      const others = model.teams.filter((t) => t.rosterId !== team.rosterId);
+      const remainingFor = (t) => {
+        const i = ctx.index.get(t.rosterId);
+        let g = 0;
+        for (const gm of ctx.games) if (gm.i === i || gm.j === i) g += 1;
+        return g + (ctx.median ? W : 0);
+      };
+      const myMax = team.wp + 2 * remainingFor(team);
+      if (a.status !== 'clinched' && a.status !== 'clinched_bye' && others.length >= spots) {
+        const byMax = others.map((t) => ({ t, max: t.wp + 2 * remainingFor(t) })).sort((p, q) => q.max - p.max);
+        const rival = byMax[spots - 1];
+        a.magic = gamesFromPoints(rival.max - team.wp + 1);
+        a.magicRival = rival.t.name;
+      }
+      if (a.status !== 'eliminated' && others.length >= spots) {
+        const byNow = [...others].sort((p, q) => q.wp - p.wp);
+        const rival = byNow[spots - 1];
+        a.tragic = gamesFromPoints(myMax - rival.wp + 1);
+        a.tragicRival = rival.name;
+      }
     }
-    if (a.status !== 'eliminated' && others.length >= spots) {
-      const byNow = [...others].sort((p, q) => q.wp - p.wp);
-      const rival = byNow[spots - 1];
-      a.tragic = gamesFromPoints(myMax - rival.wp + 1);
-      a.tragicRival = rival.name;
-    }
-    if (seed > spots) {
-      const lastIn = ranked[spots - 1];
+    if (seed > spots && lastIn) {
       a.gamesBack = (lastIn.wp - team.wp) / 2;
       a.lastIn = lastIn.name;
+      a.lastInWildcard = useDivisions && !leaders.has(lastIn.rosterId);
     }
 
     // This week's clinching / elimination scenarios for every team still alive.
     if (a.status === 'control' || a.status === 'bubble' || a.status === 'hunt') {
-      a.scenarios = weekScenarios(model, ctx, x, spots);
-      approx ||= Boolean(a.scenarios?.approx);
+      a.scenarios = weekScenarios(model, ctx, x, outside, inside);
     }
 
     a.approx = approx;
@@ -596,8 +744,8 @@ function coverWith(primes, target, V) {
 
 // Try every combination of this week's results (the team's future games are assumed lost
 // for clinching and won for elimination, so a listed scenario holds no matter what comes
-// after). Returns { week, clinch: [{ lits, hedged }], elim: [{ lits }], approx }.
-function weekScenarios(model, ctx, x, k) {
+// after). Returns { week, clinch: [{ lits, hedged }], elim: [{ lits }] }.
+function weekScenarios(model, ctx, x, outside, inside) {
   const W = ctx.weeks;
   const week0 = ctx.games.filter((g) => g.wi === 0);
   if (!week0.length || week0.length > MAX_SCENARIO_GAMES) return null;
@@ -607,7 +755,6 @@ function weekScenarios(model, ctx, x, k) {
   const fc = new Uint8Array(size);
   const ftb = new Uint8Array(size);
   const fe = new Uint8Array(size);
-  let approx = false;
 
   for (let m = 0; m < size; m++) {
     const fixed = new Map();
@@ -619,24 +766,15 @@ function weekScenarios(model, ctx, x, k) {
     });
     // Clinch: worst case everywhere else (median game lost, future games lost).
     const cPlan = planOf(W, (i) => (i === 0 && own ? 'H' : 'L'));
-    const r1 = canFinishOutside(ctx, x, cPlan, k, true, fixed);
-    approx ||= r1.approx;
-    fc[m] = r1.result ? 0 : 1;
-    if (fc[m]) ftb[m] = 1;
-    else {
-      const r2 = canFinishOutside(ctx, x, cPlan, k, false, fixed);
-      approx ||= r2.approx;
-      ftb[m] = r2.result ? 0 : 1;
-    }
+    fc[m] = outside(cPlan, 'in', true, fixed) ? 0 : 1;
+    ftb[m] = fc[m] || !outside(cPlan, 'in', false, fixed) ? 1 : 0;
     // Elimination: best case everywhere else (median game won, future games won).
     const ePlan = planOf(W, (i) => (i === 0 && own === false ? 'M' : 'W'));
-    const r3 = canFinishInside(ctx, x, ePlan, k, true, fixed);
-    approx ||= r3.approx;
-    fe[m] = r3.result ? 0 : 1;
+    fe[m] = inside(ePlan, 'in', true, fixed) ? 0 : 1;
   }
 
   const pairs = week0.map((g) => ({ i: g.i, j: g.j }));
-  return { ...buildScenarioLists(model.teams, pairs, ownVar, x, fc, ftb, fe, V, model.remainingWeeks[0]), approx };
+  return buildScenarioLists(model.teams, pairs, ownVar, x, fc, ftb, fe, V, model.remainingWeeks[0]);
 }
 
 // Turn per-outcome truth tables for this week's games into readable scenario lists.
@@ -689,9 +827,11 @@ export function explain(a, { you = false } = {}) {
     case 'clinched': return a.divClinched ? `Clinched the division${tb}.` : `Clinched a playoff spot${tb}.`;
     case 'eliminated': return 'Eliminated from playoff contention.';
     case 'control': {
-      const head = a.winNext === 1 ? `Win this week and ${subj} in`
-        : a.winNext < a.weeksLeft ? `Win the next ${a.winNext} and ${subj} in`
-          : `Win out and ${subj} in`;
+      // In median leagues a "win" here means taking BOTH games that week (H2H + median).
+      const both = a.median ? (a.winNext === 1 ? ' (H2H + median)' : ' weeks (H2H + median)') : '';
+      const head = a.winNext === 1 ? `Win this week${both} and ${subj} in`
+        : a.winNext < a.weeksLeft ? `Win the next ${a.winNext}${both} and ${subj} in`
+          : `Win out${a.median ? ' (H2H + median)' : ''} and ${subj} in`;
       return `${head}${tb}.`;
     }
     case 'bubble': {

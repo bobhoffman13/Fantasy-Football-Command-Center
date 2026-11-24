@@ -364,18 +364,132 @@ test('division leagues: simulation respects division winners', () => {
   assert.ok(odds.byRoster[4].playoffPct + odds.byRoster[5].playoffPct + odds.byRoster[6].playoffPct >= 100 - 1e-6);
 });
 
-test('division leagues with too many games left say so (odds still run)', () => {
-  const pairsFor = (w) => [[1, 2], [3, 4], [5, 6], [7, 8]].map(([a, b]) => [a, ((b + w) % 8) + 1 === a ? b : b]);
-  const teams = Array.from({ length: 8 }, (_, i) => [i + 1, 5, 5, i < 4 ? 1 : 2]);
+test('division leagues with many games left are still analyzed', () => {
+  const teams = Array.from({ length: 8 }, (_, i) => [i + 1, 5, 5, 1000 + i, { division: i < 4 ? 1 : 2 }]);
   const future = {};
-  for (let w = 11; w <= 13; w++) future[w] = pairsFor(w);
-  const big = fixture({
-    teams: teams.map(([id, w, l, d]) => [id, w, l, 1000 + id, { division: d }]),
-    future: { ...future, 14: future[11], 15: future[12] },
-    settings: { playoff_teams: 4, playoff_week_start: 16, divisions: 2 },
-  });
+  for (let w = 11; w <= 15; w++) future[w] = [[1, 2], [3, 4], [5, 6], [7, 8]];
+  const big = fixture({ teams, future, settings: { playoff_teams: 4, playoff_week_start: 16, divisions: 2 } });
   assert.equal(big.schedule.length, 20);
-  assert.match(unsupportedReason(big, 'top'), /Too many games/);
-  assert.equal(analyzeRace(big, 'pf', 'top'), null);
-  assert.equal(unsupportedReason(big, 'none'), null, 'ignoring divisions uses the normal engine');
+  assert.equal(unsupportedReason(big, 'top'), null);
+  assert.ok(analyzeRace(big, 'pf', 'top') instanceof Map);
+});
+
+import { analyzeDivisionRace as enumOracle } from './helpers/enumdiv.mjs';
+
+test('division flow engine matches the exhaustive oracle, scenarios included', () => {
+  const rng = mulberry32(777);
+  let compared = 0;
+  for (let trial = 0; trial < 15; trial++) {
+    const n = 8;
+    const teams = Array.from({ length: n }, (_, i) => {
+      const w = Math.floor(rng() * 11);
+      return [i + 1, w, 10 - w, 1000 + Math.floor(rng() * 300), { division: (i % 3) + 1 }];
+    });
+    const future = {};
+    for (let w = 11; w <= 13; w++) {
+      const o = Array.from({ length: n }, (_, i) => i + 1).sort(() => rng() - 0.5);
+      future[w] = [[o[0], o[1]], [o[2], o[3]], [o[4], o[5]], [o[6], o[7]]];
+    }
+    for (const mode of ['top', 'in']) {
+      const m = fixture({ teams, future, settings: { playoff_teams: 4, playoff_week_start: 14, divisions: 3 } });
+      const flow = analyzeRace(m, 'pf', mode);
+      const oracle = enumOracle(m, 'pf', mode);
+      for (const t of m.teams) {
+        const f = flow.get(t.rosterId);
+        const o = oracle.get(t.rosterId);
+        const tag = `trial ${trial} ${mode} T${t.rosterId}`;
+        assert.equal(f.status, o.status, `${tag} status`);
+        assert.equal(f.hedged, o.hedged, `${tag} hedged`);
+        assert.equal(f.inClinched, o.inClinched, `${tag} inClinched`);
+        assert.equal(f.divClinched, o.divClinched, `${tag} divClinched`);
+        assert.equal(f.winNext, o.winNext, `${tag} winNext`);
+        assert.deepEqual(f.scenarios?.clinch.map(scenarioText), o.scenarios?.clinch.map(scenarioText), `${tag} clinch scenarios`);
+        assert.deepEqual(f.scenarios?.elim.map(scenarioText), o.scenarios?.elim.map(scenarioText), `${tag} elim scenarios`);
+        assert.ok(!f.approx, `${tag} exact`);
+        compared++;
+      }
+    }
+  }
+  assert.ok(compared >= 200);
+});
+
+test('division + median leagues: every call is sound against brute force', () => {
+  const rng = mulberry32(31337);
+  let calls = 0;
+  for (let trial = 0; trial < 12; trial++) {
+    const n = 6;
+    const teams = Array.from({ length: n }, (_, i) => {
+      const w = Math.floor(rng() * 21);
+      return [i + 1, w, 20 - w, 1000 + Math.floor(rng() * 300), { division: i < 3 ? 1 : 2 }];
+    });
+    const future = {};
+    for (let w = 11; w <= 12; w++) {
+      const o = [1, 2, 3, 4, 5, 6].sort(() => rng() - 0.5);
+      future[w] = [[o[0], o[1]], [o[2], o[3]], [o[4], o[5]]];
+    }
+    const mode = trial % 2 ? 'in' : 'top';
+    const m = fixture({ teams, future, settings: { playoff_teams: 3, playoff_week_start: 13, divisions: 2, league_average_match: 1 } });
+    assert.equal(m.median, true);
+    const analysis = analyzeRace(m, 'pf', mode);
+    const order = rank(m.teams, 'pf');
+    const tieKey = new Map(order.map((t, i) => [t.rosterId, i]));
+    // Every legal week: each game has a winner; median top half must respect "winner outscored loser".
+    const weekOutcomes = (games) => {
+      const res = [];
+      for (let h = 0; h < 1 << games.length; h++) {
+        const winners = games.map((g, k) => ((h >> k) & 1 ? g.a : g.b));
+        const losers = games.map((g, k) => ((h >> k) & 1 ? g.b : g.a));
+        for (let top = 0; top < 1 << n; top++) {
+          if (popcountT(top) !== n / 2) continue;
+          const isTop = (id) => (top >> (id - 1)) & 1;
+          if (losers.some((l, k) => isTop(l) && !isTop(winners[k]))) continue;
+          res.push({ winners, top: Array.from({ length: n }, (_, i) => i + 1).filter((id) => isTop(id)) });
+        }
+      }
+      return res;
+    };
+    const weeks = m.remainingWeeks.map((w) => weekOutcomes(m.schedule.filter((g) => g.week === w)));
+    const finals = [];
+    for (const a of weeks[0]) for (const b of weeks[1]) {
+      const wp = new Map(m.teams.map((t) => [t.rosterId, t.wp]));
+      for (const wk of [a, b]) for (const id of [...wk.winners, ...wk.top]) wp.set(id, wp.get(id) + 2);
+      finals.push({ wp, week0Winners: new Set(a.winners) });
+    }
+    const inFor = (wp, x, worst) => {
+      const rows = m.teams.map((t) => ({ rosterId: t.rosterId, division: t.division, wp: wp.get(t.rosterId) }));
+      rows.sort((p, q) => q.wp - p.wp
+        || (p.rosterId === x ? (worst ? 1 : -1) : q.rosterId === x ? (worst ? -1 : 1) : tieKey.get(p.rosterId) - tieKey.get(q.rosterId)));
+      return seedTeams(rows, m, mode).findIndex((t) => t.rosterId === x) < m.spots;
+    };
+    const name = new Map(m.teams.map((t) => [t.name, t.rosterId]));
+    for (const t of m.teams) {
+      const a = analysis.get(t.rosterId);
+      if (a.inClinched) { calls++; assert.ok(finals.every((f) => inFor(f.wp, t.rosterId, true)), `T${t.rosterId} false clinch`); }
+      if (a.status === 'eliminated') { calls++; assert.ok(finals.every((f) => !inFor(f.wp, t.rosterId, false)), `T${t.rosterId} false elimination`); }
+      const holds = (sc, f) => sc.lits.every((l) => (l.self ? f.week0Winners.has(t.rosterId) === (l.result === 'win') : f.week0Winners.has(name.get(l.winner))));
+      for (const sc of a.scenarios?.clinch.filter((c) => !c.hedged) || []) {
+        calls++;
+        assert.ok(finals.filter((f) => holds(sc, f)).every((f) => inFor(f.wp, t.rosterId, true)), `T${t.rosterId} bad clinch scenario ${scenarioText(sc)}`);
+      }
+      for (const sc of a.scenarios?.elim || []) {
+        calls++;
+        assert.ok(finals.filter((f) => holds(sc, f)).every((f) => !inFor(f.wp, t.rosterId, false)), `T${t.rosterId} bad elim scenario ${scenarioText(sc)}`);
+      }
+    }
+  }
+  assert.ok(calls >= 15, `checked ${calls} calls`);
+});
+
+function popcountT(v) { let c = 0; for (; v; v &= v - 1) c++; return c; }
+
+test('median leagues spell out that "win" means both games', () => {
+  const m = fixture({
+    teams: [[1, 20, 4], [2, 16, 8], [3, 14, 10], [4, 6, 18]],
+    settings: { league_average_match: 1 },
+    future: { 13: [[1, 2], [3, 4]], 14: [[1, 3], [2, 4]] },
+  });
+  const a = analyzeRace(m);
+  const control = [...a.values()].find((x) => x.status === 'control');
+  assert.ok(control, 'fixture has a team in control');
+  assert.match(explain(control), /\(H2H \+ median\)/);
 });

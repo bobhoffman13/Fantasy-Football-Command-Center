@@ -262,10 +262,10 @@ function assumptionsCard({ model, analysis, odds, tiebreaker, divisionMode, notS
   if (model.divisions) {
     notes.push(divisionMode === 'none'
       ? 'Divisions are being ignored (set above) — playoffs by overall record only.'
-      : `Division league: ${DIVISION_MODES[divisionMode].desc.toLowerCase()} (👑 = current leader). Sleeper doesn’t expose this rule, so set it above to match your league. Scenarios here come from checking every possible result of every remaining game.`);
+      : `Division league: ${DIVISION_MODES[divisionMode].desc.toLowerCase()} (👑 = current leader). Sleeper doesn’t expose this rule, so set it above to match your league. Clinch and elimination calls account for division titles exactly.`);
   }
   if (unsupported) notes.push(`⚠ ${unsupported}`);
-  if (model.median) notes.push('League plays a weekly median game: each week counts as two games. Clinch/elimination calls are conservative here.');
+  if (model.median) notes.push('League plays a weekly median game: each week counts as two games. In scenarios, “Win”/“Loss” is the head-to-head game and the scenario holds however the median games go. Clinch/elimination calls are conservative here — they can come a week late, never wrong.');
   if (analysis && [...analysis.values()].some((a) => a.approx)) notes.push('Some scenarios were too numerous to check exhaustively; those calls use a conservative bound.');
   if (analysis && [...analysis.values()].some((a) => a.hedged)) notes.push('* = result depends on the tiebreaker going as assumed.');
   if (odds) notes.push(`Odds: ${odds.iterations.toLocaleString('en-US')} simulated seasons using each team’s scoring this year (regressed toward the league average). Clinched/eliminated come from exact math, not the simulation.`);

@@ -38,6 +38,7 @@ function defaultSettings() {
     snoozes: {},          // leagueId -> { actionKey: { n, until } } for the Home action plan
     weeklyDefaultId: '',  // weekly ranking set applied to every league by default
     weeklyAssignments: {}, // leagueId -> setId, or WEEKLY_NONE to opt one league out
+    tiebreakers: {},      // leagueId -> 'h2h' | 'pa' (absent = points-for default)
   };
 }
 

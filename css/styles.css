@@ -327,6 +327,29 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .sr-owner { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sr-rec { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
 .sr-pf { flex: 0 0 auto; }
+.sr-main { flex: 1; min-width: 0; }
+.sr-main .sr-owner { display: block; }
+.race-row .sr-owner { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.race-row .pill { flex: 0 0 auto; }
+.sr-odds { flex: 0 0 40px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.standings-row.me { background: rgba(58,122,254,.10); border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+.bye-line { color: var(--muted); }
+.pill-warn { background: rgba(255,182,72,.16); color: var(--warn); }
+
+/* Playoff race */
+.race-hero { border-color: var(--primary); }
+.race-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 6px 0 8px; }
+.race-status { font-size: 20px; font-weight: 800; line-height: 1.2; }
+.tone-good { color: var(--good); }
+.tone-warn { color: var(--warn); }
+.tone-bad { color: var(--bad); }
+.race-odds { text-align: center; flex: 0 0 auto; }
+.race-odds-n { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.race-explain { font-weight: 600; margin-bottom: 8px; }
+.race-facts { display: grid; gap: 6px; font-size: 13px; margin-bottom: 8px; }
+.race-details summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 8px 0; }
+.race-preview { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.45; background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px; margin: 0; }
+.race-note { margin-top: 6px; line-height: 1.4; }
 .playoff-line { text-align: center; color: var(--warn); font-size: 11px; font-weight: 700; padding: 6px 0; letter-spacing: .5px; }
 
 /* Setup */

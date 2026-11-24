@@ -8,7 +8,7 @@
 // The score model is deliberately isolated in buildScoreModel / sampleScore so it can be
 // swapped (e.g. for projections) without touching the simulation loop.
 
-import { rankTeams, DEFAULT_TIEBREAKER } from './playoffs.js';
+import { rankTeams, seedTeams, DEFAULT_TIEBREAKER, DEFAULT_DIVISION_MODE } from './playoffs.js';
 
 // Seeded PRNG so results are stable between renders and testable.
 export function mulberry32(seed) {
@@ -75,7 +75,7 @@ function erf(x) {
 // Simulate the rest of the regular season `iterations` times.
 // Returns { iterations, byRoster: { [rosterId]: { playoffPct, byePct, ifWinPct, ifLosePct } } }.
 // ifWin/ifLose condition on the team's head-to-head result in the first remaining week.
-export function simulatePlayoffs(model, { iterations = 10000, seed = 20261, tiebreaker = DEFAULT_TIEBREAKER } = {}) {
+export function simulatePlayoffs(model, { iterations = 10000, seed = 20261, tiebreaker = DEFAULT_TIEBREAKER, divisionMode = DEFAULT_DIVISION_MODE } = {}) {
   const teams = model.teams;
   const n = teams.length;
   const index = new Map(teams.map((t, i) => [t.rosterId, i]));
@@ -100,7 +100,7 @@ export function simulatePlayoffs(model, { iterations = 10000, seed = 20261, tieb
   // Base head-to-head matrix (only needed for the h2h tiebreaker).
   const baseH2h = useH2h ? teams.map((a) => teams.map((b) => ({ ...(model.h2h[a.rosterId]?.[b.rosterId] || { w: 0, l: 0, t: 0 }) }))) : null;
 
-  const sim = teams.map((t) => ({ rosterId: t.rosterId, wp: 0, pf: 0, pa: 0, i: 0 }));
+  const sim = teams.map((t) => ({ rosterId: t.rosterId, division: t.division, wp: 0, pf: 0, pa: 0, i: 0 }));
   const scores = new Float64Array(n);
   const order = Array.from({ length: n }, (_, i) => i);
   const firstResult = new Int8Array(n); // 1 win, -1 loss, 0 no game
@@ -131,7 +131,7 @@ export function simulatePlayoffs(model, { iterations = 10000, seed = 20261, tieb
       }
     }
 
-    const ranked = rankTeams(sim, tiebreaker, h2h ? (a, b) => h2h[index.get(a)][index.get(b)] : null);
+    const ranked = seedTeams(rankTeams(sim, tiebreaker, h2h ? (a, b) => h2h[index.get(a)][index.get(b)] : null), model, divisionMode);
     for (let r = 0; r < n; r++) {
       const i = ranked[r].i;
       const inP = r < model.spots;

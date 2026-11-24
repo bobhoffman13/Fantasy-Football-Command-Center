@@ -7,6 +7,7 @@ import { getRosters, getLeagueUsers, getMatchups } from '../api/sleeper.js';
 import { ownerDisplayName, findLeague } from '../lib/league.js';
 import {
   buildSeasonModel, currentStandings, analyzeRace, explain, STATUS, TIEBREAKERS, DEFAULT_TIEBREAKER,
+  DIVISION_MODES, DEFAULT_DIVISION_MODE, divisionLeaders, unsupportedReason,
 } from '../lib/playoffs.js';
 import { simulatePlayoffs, formatPct, buildScoreModel, winProbability } from '../lib/playoffsim.js';
 import { buildLeagueUpdate, settledOf, teamNeeds } from '../lib/playoffmsg.js';
@@ -17,6 +18,20 @@ const state = { leagueId: null };
 
 export function tiebreakerFor(leagueId) {
   return getState().settings.tiebreakers?.[leagueId] || DEFAULT_TIEBREAKER;
+}
+
+export function divisionModeFor(leagueId) {
+  return getState().settings.divisionModes?.[leagueId] || DEFAULT_DIVISION_MODE;
+}
+
+function segmented(label, options, current, onPick) {
+  return div({ class: 'field' },
+    span({ class: 'field-label' }, label),
+    div({ class: 'segmented' }, ...Object.entries(options).map(([key, o]) => btn({
+      class: 'seg' + (key === current ? ' active' : ''),
+      title: o.desc,
+      onclick: () => { if (key !== current) onPick(key); },
+    }, o.label))));
 }
 
 export function renderPlayoff(host) {
@@ -30,23 +45,23 @@ export function renderPlayoff(host) {
   if (!session.leagues.some((l) => l.league_id === state.leagueId)) state.leagueId = sel.selectedId;
 
   function paintTiebreaker() {
-    const current = tiebreakerFor(state.leagueId);
-    mount(tbHost, div({ class: 'field' },
-      span({ class: 'field-label' }, 'Tiebreaker (match your league rules)'),
-      div({ class: 'segmented' }, ...Object.entries(TIEBREAKERS).map(([key, tb]) => btn({
-        class: 'seg' + (key === current ? ' active' : ''),
-        title: tb.desc,
-        onclick: () => {
-          if (key === tiebreakerFor(state.leagueId)) return;
-          updateMap('tiebreakers', state.leagueId, key === DEFAULT_TIEBREAKER ? undefined : key);
-          paintTiebreaker();
-          trigger();
-        },
-      }, tb.label)))));
+    const id = state.leagueId;
+    const hasDivisions = Number(findLeague(id)?.settings?.divisions) >= 2;
+    mount(tbHost,
+      segmented('Tiebreaker (match your league rules)', TIEBREAKERS, tiebreakerFor(id), (key) => {
+        updateMap('tiebreakers', id, key === DEFAULT_TIEBREAKER ? undefined : key);
+        paintTiebreaker();
+        trigger();
+      }),
+      hasDivisions ? segmented('Division winners', DIVISION_MODES, divisionModeFor(id), (key) => {
+        updateMap('divisionModes', id, key === DEFAULT_DIVISION_MODE ? undefined : key);
+        paintTiebreaker();
+        trigger();
+      }) : null);
   }
 
   function trigger() {
-    if (state.leagueId) run(() => loadRace(state.leagueId, tiebreakerFor(state.leagueId)));
+    if (state.leagueId) run(() => loadRace(state.leagueId, tiebreakerFor(state.leagueId), divisionModeFor(state.leagueId)));
   }
 
   paintTiebreaker();
@@ -55,7 +70,7 @@ export function renderPlayoff(host) {
   trigger();
 }
 
-async function loadRace(leagueId, tiebreaker) {
+async function loadRace(leagueId, tiebreaker, divisionMode) {
   const league = findLeague(leagueId);
   const { settings } = getState();
   const regEnd = Math.min(18, Math.max(1, (Number(league?.settings?.playoff_week_start) || 15) - 1));
@@ -75,23 +90,29 @@ async function loadRace(leagueId, tiebreaker) {
     nameFor: (r) => (r.owner_id ? ownerDisplayName(usersById, r.owner_id) : `Team ${r.roster_id}`),
     matchupsByWeek,
   });
-  const ranked = currentStandings(model, tiebreaker);
   const notStarted = model.completedWeeks === 0;
-  const analysis = notStarted ? null : analyzeRace(model, tiebreaker);
-  // Let the spinner paint before the simulation occupies the main thread.
+  const ranked = currentStandings(model, tiebreaker, divisionMode);
+  // Let the spinner paint before the heavy math occupies the main thread.
   await new Promise((r) => setTimeout(r, 16));
-  const odds = analysis && !model.complete ? simulatePlayoffs(model, { iterations: SIM_ITERATIONS, tiebreaker }) : null;
+  const analysis = notStarted ? null : analyzeRace(model, tiebreaker, divisionMode);
+  const canSimulate = !notStarted && !model.complete && !model.scheduleIncomplete;
+  const odds = canSimulate ? simulatePlayoffs(model, { iterations: SIM_ITERATIONS, tiebreaker, divisionMode }) : null;
   const me = model.teams.find((t) => t.ownerId === settings.userId) || null;
+  const v = {
+    league, model, ranked, analysis, odds, tiebreaker, divisionMode, notStarted, me,
+    leaders: model.divisions && divisionMode !== 'none' ? divisionLeaders(model, tiebreaker) : null,
+    unsupported: notStarted ? null : unsupportedReason(model, divisionMode),
+  };
 
   const out = div({});
   if (me && analysis) out.appendChild(myRaceCard(model, me, analysis.get(me.rosterId), odds, tiebreaker));
-  out.appendChild(updateCard(league, model, ranked, analysis, odds, tiebreaker, notStarted));
-  out.appendChild(standingsCard(league, model, ranked, analysis, odds, me, notStarted));
+  out.appendChild(updateCard(v));
+  out.appendChild(standingsCard(v));
   if (analysis && !model.complete) {
     const needs = needsCard(model, ranked, analysis, odds, me);
     if (needs) out.appendChild(needs);
   }
-  out.appendChild(assumptionsCard(model, analysis, odds, tiebreaker, notStarted));
+  out.appendChild(assumptionsCard(v));
   return out;
 }
 
@@ -183,8 +204,8 @@ function needsCard(model, ranked, analysis, odds, me) {
     div({ class: 'muted small race-note' }, 'Scenarios cover every combination of this week’s results and hold no matter what happens after this week.'));
 }
 
-function updateCard(league, model, ranked, analysis, odds, tiebreaker, notStarted) {
-  const text = buildLeagueUpdate({ leagueName: league?.name, model, ranked, analysis, odds, tiebreaker });
+function updateCard({ league, model, ranked, analysis, odds, tiebreaker, divisionMode, leaders, unsupported, notStarted }) {
+  const text = buildLeagueUpdate({ leagueName: league?.name, model, ranked, analysis, odds, tiebreaker, divisionMode, leaders, unsupported });
   const preview = el('pre', { class: 'msg-preview race-preview' }, text);
   const details = el('details', { class: 'race-details' }, el('summary', {}, 'Preview message'), preview);
   return div({ class: 'card' },
@@ -194,7 +215,7 @@ function updateCard(league, model, ranked, analysis, odds, tiebreaker, notStarte
     details);
 }
 
-function standingsCard(league, model, ranked, analysis, odds, me, notStarted) {
+function standingsCard({ league, model, ranked, analysis, odds, me, notStarted, leaders }) {
   const { spots, byes } = model;
   const sub = model.complete ? 'Regular season complete — final seeding'
     : notStarted ? 'No games played yet'
@@ -209,8 +230,13 @@ function standingsCard(league, model, ranked, analysis, odds, me, notStarted) {
     rows.push(div({ class: 'standings-row race-row' + (me && me.rosterId === t.rosterId ? ' me' : '') },
       span({ class: 'sr-rank' }, `${i + 1}`),
       div({ class: 'sr-main' },
-        div({ class: 'sr-owner' }, t.name),
-        div({ class: 'muted small' }, `${t.wins}-${t.losses}${t.ties ? '-' + t.ties : ''} · ${t.pf.toFixed(1)} PF${why ? ' · ' + why : ''}`)),
+        div({ class: 'sr-owner' }, t.name + (leaders?.has(t.rosterId) ? ' 👑' : '')),
+        div({ class: 'muted small' }, [
+          `${t.wins}-${t.losses}${t.ties ? '-' + t.ties : ''}`,
+          `${t.pf.toFixed(1)} PF`,
+          model.divisions ? model.divisionNames[t.division] : null,
+          why || null,
+        ].filter(Boolean).join(' · '))),
       o ? span({ class: 'sr-odds' }, formatPct(o.playoffPct, { settled: settledOf(a) })) : null,
       statusPill(a)));
   });
@@ -230,11 +256,15 @@ function shortWhy(a) {
   return '';
 }
 
-function assumptionsCard(model, analysis, odds, tiebreaker, notStarted) {
+function assumptionsCard({ model, analysis, odds, tiebreaker, divisionMode, notStarted, unsupported }) {
   const notes = [`Tiebreaker assumed: ${TIEBREAKERS[tiebreaker].label} — ${TIEBREAKERS[tiebreaker].desc}. Sleeper doesn’t reliably expose this, so set it above to match your league.`];
   if (model.byes) notes.push(`Assumes the top ${model.byes} seeds get first-round byes (${model.spots}-team bracket).`);
-  if (model.divisions) notes.push('⚠ This league uses divisions. Division winners can be guaranteed seeds, which isn’t modelled — showing standings only, no clinch math or odds.');
-  if (model.scheduleIncomplete && !model.divisions) notes.push('⚠ Sleeper didn’t return the remaining schedule, so clinch scenarios and odds are unavailable.');
+  if (model.divisions) {
+    notes.push(divisionMode === 'none'
+      ? 'Divisions are being ignored (set above) — playoffs by overall record only.'
+      : `Division league: ${DIVISION_MODES[divisionMode].desc.toLowerCase()} (👑 = current leader). Sleeper doesn’t expose this rule, so set it above to match your league. Scenarios here come from checking every possible result of every remaining game.`);
+  }
+  if (unsupported) notes.push(`⚠ ${unsupported}`);
   if (model.median) notes.push('League plays a weekly median game: each week counts as two games. Clinch/elimination calls are conservative here.');
   if (analysis && [...analysis.values()].some((a) => a.approx)) notes.push('Some scenarios were too numerous to check exhaustively; those calls use a conservative bound.');
   if (analysis && [...analysis.values()].some((a) => a.hedged)) notes.push('* = result depends on the tiebreaker going as assumed.');

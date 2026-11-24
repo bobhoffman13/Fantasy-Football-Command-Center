@@ -152,11 +152,6 @@ test('head-to-head records are built from completed weeks', () => {
   assert.deepEqual(m.history[1], [101]);
 });
 
-test('division leagues fall back to standings only', () => {
-  const m = fixture({ teams: [[1, 5, 5], [2, 5, 5]], settings: { divisions: 2 }, future: { 11: [[1, 2]] } });
-  assert.equal(analyzeRace(m), null);
-});
-
 test('regular season complete: final seeding, no scenarios', () => {
   const m = fixture({ teams: [[1, 10, 4], [2, 9, 5, 1300], [3, 9, 5, 1200], [4, 0, 14]] });
   assert.equal(m.complete, true);
@@ -287,4 +282,100 @@ test('scenarios are sound and complete against brute force (random leagues)', ()
     checked += [...analysis.values()].filter((a) => a.scenarios).length;
   }
   assert.ok(checked > 20, `exercised ${checked} live teams`);
+});
+
+// --- division leagues ------------------------------------------------------------------
+
+import { seedTeams, rankTeams as rank, unsupportedReason } from '../js/lib/playoffs.js';
+
+// teams: [[id, w, l, division, pf?]]
+function divFixture({ teams, future, spots = 3, mode }) {
+  return fixture({
+    teams: teams.map(([id, w, l, d, pf]) => [id, w, l, pf ?? 1000 + id, { division: d }]),
+    future,
+    settings: { playoff_teams: spots, playoff_week_start: 14, divisions: 2 },
+  });
+}
+
+test('division winners are seeded first even with a worse record', () => {
+  const m = divFixture({
+    teams: [[1, 9, 1, 1], [2, 6, 4, 1], [3, 7, 3, 1], [4, 5, 5, 2], [5, 4, 6, 2], [6, 2, 8, 2]],
+    future: { 11: [[1, 4], [2, 5], [3, 6]], 12: [[1, 5], [2, 6], [3, 4]], 13: [[1, 6], [2, 4], [3, 5]] },
+  });
+  assert.equal(m.divisions, true);
+  assert.deepEqual(currentStandings(m, 'pf', 'top').map((t) => t.rosterId), [1, 4, 3, 2, 5, 6]);
+  assert.deepEqual(currentStandings(m, 'pf', 'in').map((t) => t.rosterId), [1, 3, 4, 2, 5, 6]);
+  assert.deepEqual(currentStandings(m, 'pf', 'none').map((t) => t.rosterId), [1, 3, 2, 4, 5, 6]);
+});
+
+test('division engine agrees with brute force on random leagues', () => {
+  const rng = mulberry32(4242);
+  let live = 0;
+  for (let trial = 0; trial < 20; trial++) {
+    const teams = Array.from({ length: 6 }, (_, i) => {
+      const w = Math.floor(rng() * 11);
+      return [i + 1, w, 10 - w, i < 3 ? 1 : 2, 1000 + Math.floor(rng() * 300)];
+    });
+    const future = {};
+    for (let w = 11; w <= 13; w++) {
+      const o = [1, 2, 3, 4, 5, 6].sort(() => rng() - 0.5);
+      future[w] = [[o[0], o[1]], [o[2], o[3]], [o[4], o[5]]];
+    }
+    for (const mode of ['top', 'in']) {
+      const m = divFixture({ teams, future, mode });
+      const analysis = analyzeRace(m, 'pf', mode);
+      const order = rank(m.teams, 'pf');
+      const tieKey = new Map(order.map((t, i) => [t.rosterId, i]));
+      // independent: rank with x losing (worst) or winning (best) every tie, then seed.
+      const inFor = (wpById, x, worst) => {
+        const rows = m.teams.map((t) => ({ rosterId: t.rosterId, division: t.division, wp: wpById.get(t.rosterId) }));
+        rows.sort((p, q) => q.wp - p.wp
+          || (p.rosterId === x ? (worst ? 1 : -1) : q.rosterId === x ? (worst ? -1 : 1) : tieKey.get(p.rosterId) - tieKey.get(q.rosterId)));
+        return seedTeams(rows, m, mode).findIndex((t) => t.rosterId === x) < m.spots;
+      };
+      const outcomes = [];
+      for (let mask = 0; mask < 1 << m.schedule.length; mask++) {
+        const wpById = new Map(m.teams.map((t) => [t.rosterId, t.wp]));
+        m.schedule.forEach((g, k) => { const w = (mask >> k) & 1 ? g.a : g.b; wpById.set(w, wpById.get(w) + 2); });
+        outcomes.push(wpById);
+      }
+      for (const t of m.teams) {
+        const a = analysis.get(t.rosterId);
+        const allIn = outcomes.every((o) => inFor(o, t.rosterId, true));
+        const anyIn = outcomes.some((o) => inFor(o, t.rosterId, false));
+        assert.equal(Boolean(a.inClinched), allIn, `T${t.rosterId} playoff spot clinch (${mode})`);
+        assert.equal(a.status === 'eliminated', !anyIn, `T${t.rosterId} elimination (${mode})`);
+        if (a.scenarios) live++;
+      }
+    }
+  }
+  assert.ok(live > 20, `exercised ${live} live teams`);
+});
+
+test('division leagues: simulation respects division winners', () => {
+  const m = divFixture({
+    teams: [[1, 9, 1, 1], [2, 6, 4, 1], [3, 7, 3, 1], [4, 5, 5, 2], [5, 4, 6, 2], [6, 2, 8, 2]],
+    future: { 11: [[1, 4], [2, 5], [3, 6]], 12: [[1, 5], [2, 6], [3, 4]], 13: [[1, 6], [2, 4], [3, 5]] },
+  });
+  const odds = simulatePlayoffs(m, { iterations: 2000, divisionMode: 'top' });
+  const total = Object.values(odds.byRoster).reduce((s, o) => s + o.playoffPct, 0);
+  assert.ok(Math.abs(total - 300) < 1e-6);
+  // Exactly one of division 2 always makes it as its winner.
+  assert.ok(odds.byRoster[4].playoffPct + odds.byRoster[5].playoffPct + odds.byRoster[6].playoffPct >= 100 - 1e-6);
+});
+
+test('division leagues with too many games left say so (odds still run)', () => {
+  const pairsFor = (w) => [[1, 2], [3, 4], [5, 6], [7, 8]].map(([a, b]) => [a, ((b + w) % 8) + 1 === a ? b : b]);
+  const teams = Array.from({ length: 8 }, (_, i) => [i + 1, 5, 5, i < 4 ? 1 : 2]);
+  const future = {};
+  for (let w = 11; w <= 13; w++) future[w] = pairsFor(w);
+  const big = fixture({
+    teams: teams.map(([id, w, l, d]) => [id, w, l, 1000 + id, { division: d }]),
+    future: { ...future, 14: future[11], 15: future[12] },
+    settings: { playoff_teams: 4, playoff_week_start: 16, divisions: 2 },
+  });
+  assert.equal(big.schedule.length, 20);
+  assert.match(unsupportedReason(big, 'top'), /Too many games/);
+  assert.equal(analyzeRace(big, 'pf', 'top'), null);
+  assert.equal(unsupportedReason(big, 'none'), null, 'ignoring divisions uses the normal engine');
 });

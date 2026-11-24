@@ -13,6 +13,7 @@
 // direction for both checks — it can miss a clinch/elimination, never invent one.
 
 import { FlowGraph } from './maxflow.js';
+import { analyzeDivisionRace, divisionUnsupported } from './playoffdiv.js';
 
 export const TIEBREAKERS = {
   pf: { label: 'Points for', desc: 'More total points scored wins the tie (Sleeper default)' },
@@ -20,6 +21,14 @@ export const TIEBREAKERS = {
   pa: { label: 'Points against', desc: 'More points scored against wins the tie, then points for' },
 };
 export const DEFAULT_TIEBREAKER = 'pf';
+
+// How division winners are treated. Sleeper doesn't expose this, so it's a per-league setting.
+export const DIVISION_MODES = {
+  top: { label: 'Top seeds', desc: 'Division winners are guaranteed a spot and take the top seeds' },
+  in: { label: 'Guaranteed spot', desc: 'Division winners are guaranteed a spot; all seeds by record' },
+  none: { label: 'Ignore', desc: 'Divisions don’t affect the playoffs' },
+};
+export const DEFAULT_DIVISION_MODE = 'top';
 
 export const STATUS = {
   clinched_bye: { label: 'Clinched bye', tone: 'good', emoji: '✅' },
@@ -64,7 +73,7 @@ export function buildSeasonModel({ league, rosters, nameFor, matchupsByWeek = {}
   const gamesPerWeek = median ? 2 : 1;
   const spots = clamp(Number(s.playoff_teams) || 6, 1, Math.max(1, list.length));
   const regEnd = clamp((Number(s.playoff_week_start) || 15) - 1, 1, 18);
-  const divisions = Number(s.divisions) >= 2;
+  const divisionCount = Number(s.divisions) || 0;
 
   const teams = list.map((r) => {
     const rs = r.settings || {};
@@ -79,9 +88,18 @@ export function buildSeasonModel({ league, rosters, nameFor, matchupsByWeek = {}
       wp: 2 * wins + ties,
       pf: (Number(rs.fpts) || 0) + (Number(rs.fpts_decimal) || 0) / 100,
       pa: (Number(rs.fpts_against) || 0) + (Number(rs.fpts_against_decimal) || 0) / 100,
-      division: rs.division ?? null,
+      division: rs.division != null && Number(rs.division) > 0 ? Number(rs.division) : null,
     };
   });
+  // Only treat the league as divisional when Sleeper says so AND every roster has one.
+  const divisions = divisionCount >= 2 && teams.length > 0 && teams.every((t) => t.division != null)
+    && new Set(teams.map((t) => t.division)).size >= 2;
+  const divisionNames = {};
+  if (divisions) {
+    for (const d of new Set(teams.map((t) => t.division))) {
+      divisionNames[d] = league?.metadata?.[`division_${d}`] || `Division ${d}`;
+    }
+  }
 
   // Weeks already reflected in the W-L records. Records (not display_week) are the source
   // of truth: mid-week the in-progress week isn't in the record yet, so it's still "remaining".
@@ -124,7 +142,7 @@ export function buildSeasonModel({ league, rosters, nameFor, matchupsByWeek = {}
 
   return {
     teams, spots, byes: playoffByes(spots), regEnd, completedWeeks, complete,
-    remainingWeeks, schedule, scheduleIncomplete, median, gamesPerWeek, divisions,
+    remainingWeeks, schedule, scheduleIncomplete, median, gamesPerWeek, divisions, divisionNames,
     history, h2h,
   };
 }
@@ -170,8 +188,45 @@ export function modelH2hFn(model) {
   return (a, b) => model.h2h[a]?.[b] || null;
 }
 
-export function currentStandings(model, tiebreaker = DEFAULT_TIEBREAKER) {
-  return rankTeams(model.teams, tiebreaker, modelH2hFn(model));
+// Apply division rules to an overall ranking: returns teams in SEED order (playoff teams
+// first). Works on any objects carrying { division } (model teams or simulated rows).
+export function seedTeams(ranked, model, mode = DEFAULT_DIVISION_MODE) {
+  if (!model.divisions || mode === 'none') return ranked;
+  const seen = new Set();
+  const leaders = [];
+  for (const t of ranked) if (!seen.has(t.division)) { seen.add(t.division); leaders.push(t); }
+  const leaderSet = new Set(leaders);
+  const rest = ranked.filter((t) => !leaderSet.has(t));
+  if (mode === 'top') return [...leaders, ...rest];
+  const wild = Math.max(0, model.spots - leaders.length);
+  const inSet = new Set([...leaders, ...rest.slice(0, wild)]);
+  return [...ranked.filter((t) => inSet.has(t)), ...ranked.filter((t) => !inSet.has(t))];
+}
+
+// rosterIds currently leading their division (by the overall ranking).
+export function divisionLeaders(model, tiebreaker = DEFAULT_TIEBREAKER) {
+  const out = new Set();
+  if (!model.divisions) return out;
+  const seen = new Set();
+  for (const t of rankTeams(model.teams, tiebreaker, modelH2hFn(model))) {
+    if (!seen.has(t.division)) { seen.add(t.division); out.add(t.rosterId); }
+  }
+  return out;
+}
+
+export function currentStandings(model, tiebreaker = DEFAULT_TIEBREAKER, divisionMode = DEFAULT_DIVISION_MODE) {
+  return seedTeams(rankTeams(model.teams, tiebreaker, modelH2hFn(model)), model, divisionMode);
+}
+
+// Why exact scenarios can't be computed for this league (null = they can).
+export function unsupportedReason(model, divisionMode = DEFAULT_DIVISION_MODE) {
+  if (model.scheduleIncomplete) return 'Sleeper didn’t return the remaining schedule, so clinch scenarios and odds are unavailable.';
+  if (model.divisions && divisionMode !== 'none' && !model.complete) {
+    const why = divisionUnsupported(model);
+    if (why === 'median') return 'Clinch scenarios aren’t available for division leagues that also play a weekly median game.';
+    if (why === 'too_many') return 'Too many games left to check every outcome in a division league — exact clinch scenarios start in the last few weeks of the regular season. Odds are still shown.';
+  }
+  return null;
 }
 
 // --- exact scenario engine -----------------------------------------------------------
@@ -374,17 +429,20 @@ function finalStatuses(model, ranked) {
     const line = seed <= byes ? byes : spots;
     const neighbor = seed <= line ? ranked[line] : ranked[line - 1];
     const hedged = Boolean(neighbor && neighbor.wp === t.wp);
-    out.set(t.rosterId, { status, hedged, approx: false, seed, final: true });
+    const atLine = ranked[spots];
+    const inClinched = seed <= spots && !(atLine && atLine.wp === t.wp);
+    out.set(t.rosterId, { status, hedged, inClinched, approx: false, seed, final: true });
   });
   return out;
 }
 
-// Analyze every team. Returns Map<rosterId, analysis>, or null when the league uses
-// divisions or the schedule can't be read (the view falls back to standings-only).
-export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER) {
-  if (model.divisions || model.scheduleIncomplete) return null;
-  const ranked = currentStandings(model, tiebreaker);
+// Analyze every team. Returns Map<rosterId, analysis>, or null when exact math isn't
+// available (see unsupportedReason) and the view falls back to standings + odds.
+export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER, divisionMode = DEFAULT_DIVISION_MODE) {
+  if (model.scheduleIncomplete) return null;
+  const ranked = currentStandings(model, tiebreaker, divisionMode);
   if (model.complete) return finalStatuses(model, ranked);
+  if (model.divisions && divisionMode !== 'none') return analyzeDivisionRace(model, tiebreaker, divisionMode);
 
   const ctx = makeContext(model);
   const { spots, byes } = model;
@@ -418,6 +476,7 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER) {
     else if (winOutTB) { a.status = 'control'; a.hedged = !winOut; }
     else a.status = seed <= spots ? 'bubble' : 'hunt';
     a.aliveOnlyViaTB = aliveOnlyViaTB;
+    a.inClinched = clinch; // playoff spot certain (a hedged bye can still have a certain spot)
 
     // "Win your next j and you're in" — smallest j that clinches regardless of the rest.
     if (a.status === 'control') {
@@ -480,7 +539,7 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER) {
 
 // --- this week's scenarios (NFL "clinches with: ..." style) ---------------------------
 
-const MAX_SCENARIO_GAMES = 8; // 2^8 outcomes; beyond that (17+ team leagues) skip
+export const MAX_SCENARIO_GAMES = 8; // 2^8 outcomes; beyond that (17+ team leagues) skip
 
 const popcount = (n) => { let c = 0; for (; n; n &= n - 1) c++; return c; };
 
@@ -576,12 +635,21 @@ function weekScenarios(model, ctx, x, k) {
     fe[m] = r3.result ? 0 : 1;
   }
 
-  const lit = (v, wantFirst) => {
-    const g = week0[v];
-    const winner = wantFirst ? g.i : g.j;
+  const pairs = week0.map((g) => ({ i: g.i, j: g.j }));
+  return { ...buildScenarioLists(model.teams, pairs, ownVar, x, fc, ftb, fe, V, model.remainingWeeks[0]), approx };
+}
+
+// Turn per-outcome truth tables for this week's games into readable scenario lists.
+// pairs[v] = { i, j } team indexes; outcome bit v set => team i wins game v.
+// fc: clinched for certain · ftb: clinched if ties go your way · fe: eliminated.
+export function buildScenarioLists(teams, pairs, ownVar, x, fc, ftb, fe, V, week) {
+  const size = 1 << V;
+  const lit = (v, firstWins) => {
+    const g = pairs[v];
+    const winner = firstWins ? g.i : g.j;
     if (v === ownVar) return { self: true, result: winner === x ? 'win' : 'loss' };
     const loser = winner === g.i ? g.j : g.i;
-    return { self: false, winner: model.teams[winner].name, loser: model.teams[loser].name };
+    return { self: false, winner: teams[winner].name, loser: teams[loser].name };
   };
   const toScenario = (t, hedged) => {
     const lits = [];
@@ -589,13 +657,12 @@ function weekScenarios(model, ctx, x, k) {
     lits.sort((p, q) => Number(q.self) - Number(p.self));
     return { lits, hedged };
   };
-
   const clinch = coverWith(primeImplicants(fc, V), fc, V).map((t) => toScenario(t, false));
   const tbOnly = new Uint8Array(size);
   for (let m = 0; m < size; m++) tbOnly[m] = ftb[m] && !fc[m] ? 1 : 0;
   clinch.push(...coverWith(primeImplicants(ftb, V), tbOnly, V).map((t) => toScenario(t, true)));
   const elim = coverWith(primeImplicants(fe, V), fe, V).map((t) => toScenario(t, false));
-  return { week: model.remainingWeeks[0], clinch, elim, approx };
+  return { week, clinch, elim };
 }
 
 // "Win + Lamb Chops beats Chase Bank" — one scenario as text.
@@ -619,7 +686,7 @@ export function explain(a, { you = false } = {}) {
   }
   switch (a.status) {
     case 'clinched_bye': return `Clinched a first-round bye${tb}.`;
-    case 'clinched': return `Clinched a playoff spot${tb}.`;
+    case 'clinched': return a.divClinched ? `Clinched the division${tb}.` : `Clinched a playoff spot${tb}.`;
     case 'eliminated': return 'Eliminated from playoff contention.';
     case 'control': {
       const head = a.winNext === 1 ? `Win this week and ${subj} in`
@@ -628,13 +695,13 @@ export function explain(a, { you = false } = {}) {
       return `${head}${tb}.`;
     }
     case 'bubble': {
-      const parts = [`Holding the #${a.seed} seed but can't lock it up alone`];
+      const parts = [a.divLeader ? `Leads the division (#${a.seed} seed) but can't lock it up alone` : `Holding the #${a.seed} seed but can't lock it up alone`];
       if (a.magic != null) parts.push(`magic number ${a.magic} vs ${a.magicRival}`);
       return parts.join(' — ') + '.';
     }
     default: {
       const parts = [];
-      if (a.gamesBack > 0) parts.push(`${a.gamesBack} game${a.gamesBack === 1 ? '' : 's'} back of ${a.lastIn}`);
+      if (a.gamesBack > 0) parts.push(`${a.gamesBack} game${a.gamesBack === 1 ? '' : 's'} back of ${a.lastIn}${a.lastInWildcard ? ' for the last wildcard' : ''}`);
       else if (a.gamesBack === 0) parts.push(`level with ${a.lastIn} but behind on the tiebreaker`);
       parts.push('needs help');
       if (a.pivotal?.loseOut) parts.push('a loss this week is elimination');

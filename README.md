@@ -122,7 +122,15 @@ which is the one number comparable across positions.
   - *Waiver Alerts* — per-league rank thresholds + export config for the companion script.
   - *Overview* — per-league record/standing/playoff status + cross-league activity feed (with names).
 - **Commish** — message templates (auto-filled tokens + unfilled-placeholder guard) and dues tracking.
-- **Tools** — playoff race (with playoff line + clinch estimate) and draft scheduling tools.
+- **Tools**
+  - *Playoff Race* — for every team: status (Clinched / Clinched bye / In control / On the bubble /
+    In the hunt / Eliminated), a plain-English "what they need", magic & tragic numbers, and
+    "win this week and you're in" flags. Clinch/elimination is **exact against the real remaining
+    schedule** (small max-flow checks), and anything that depends on a tiebreaker is marked
+    "if tiebreakers hold". Playoff and bye odds come from 10,000 simulated seasons. The tiebreaker
+    (points for / head-to-head / points against) is set per league. Division leagues fall back to
+    standings only. One tap copies a whole-league **playoff update** for Sleeper chat.
+  - *Draft Tools* — date poll, confirmation, and reminder messages.
 - **Setup** — account, league config, ranking profiles, weekly rankings, risk tolerance, backup/restore, full data wipe.
 
 ## Tests
@@ -133,7 +141,8 @@ No build step and no dependencies — the suite runs on Node's built-in test run
 node --test "test/**/*.test.mjs"
 ```
 
-It covers the weekly ranking pipeline end to end against the real exported CSVs in
+It covers the playoff race math (schedule-aware clinch/elimination, tiebreaker hedging, median
+leagues, byes, simulation consistency, the league update message) and the weekly ranking pipeline end to end against the real exported CSVs in
 `test/fixtures/`: parsing, merging position-group files, the projection ordering that
 feeds FLEX and SUPER_FLEX, fuzzy matching onto Sleeper ids, roster coverage, and the
 store rules for defaults, per-league overrides, deletion, and backup.
@@ -157,7 +166,7 @@ js/
   router.js           Hash router
   activity.js         Cross-league transaction polling (stable-deps, race-guarded)
   api/sleeper.js      Sleeper client (in-flight dedup, 5-min cache, 24h player cache)
-  lib/                csv, fuzzy match, lineup optimizer, weekly sets, idb, players, league, format, dom
+  lib/                csv, fuzzy match, lineup optimizer, weekly sets, playoff math/sim/message, idb, players, league, format, dom
   data/               constants, message templates
   views/              home, leagues(+roster/matchup/freeagents/lineup/waivers/overview), commish, tools, setup
 companion/            Node + Pushover alert script

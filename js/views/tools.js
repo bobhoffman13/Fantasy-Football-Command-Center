@@ -1,15 +1,12 @@
 // TOOLS area: Playoff Race + Draft Tools. Draft state persists across navigation.
 import { div, span, btn, el, mount, copyToClipboard, toast } from '../lib/dom.js';
-import { getState } from '../store.js';
-import { getRosters, getLeagueUsers } from '../api/sleeper.js';
-import { computeStandings } from '../lib/league.js';
 import { DRAFT_FORMATS } from '../data/constants.js';
-import { leagueSelector, asyncRegion, sectionTitle, emptyBlock } from './components.js';
+import { sectionTitle } from './components.js';
 import { navigate } from '../router.js';
+import { renderPlayoff } from './playoffrace.js';
 
 const TOOLS_TABS = [{ id: 'playoff', label: 'Playoff Race' }, { id: 'draft', label: 'Draft Tools' }];
 
-const playoffState = { leagueId: null, week: null };
 const draftState = { options: null, format: 'Snake', chosen: '' }; // options null => seed defaults lazily
 
 export function render(container, sub) {
@@ -22,106 +19,6 @@ export function render(container, sub) {
   mount(container, root);
   if (active === 'playoff') renderPlayoff(host);
   else renderDraft(host);
-}
-
-// --- Playoff Race ---
-
-function renderPlayoff(host) {
-  const { session } = getState();
-  if (!session.leagues.length) { mount(host, emptyBlock('Connect your account in Setup first.')); return; }
-
-  const root = div({});
-  const body = div({ class: 'view-body' });
-  const run = asyncRegion(body);
-  const sel = leagueSelector('playoff', (id) => { playoffState.leagueId = id; trigger(); });
-  if (!session.leagues.some((l) => l.league_id === playoffState.leagueId)) playoffState.leagueId = sel.selectedId;
-
-  const nfl = session.nflState;
-  if (playoffState.week == null) playoffState.week = nfl?.display_week || 1;
-  const weekInput = el('input', { type: 'number', class: 'input', min: 1, max: 18, value: playoffState.week,
-    oninput: (e) => { playoffState.week = e.target.value; } });
-  const weekRow = div({ class: 'inline-field' }, span({ class: 'field-label' }, 'Through week'), weekInput,
-    btn({ class: 'btn', onclick: trigger }, 'Load standings'));
-
-  root.append(sel.node, weekRow, body);
-  mount(host, root);
-  trigger();
-
-  function trigger() {
-    const wk = parseInt(playoffState.week, 10);
-    if (!Number.isFinite(wk) || wk < 1 || wk > 18) { mount(body, div({ class: 'diag diag-warn' }, '⚠ Enter a week between 1 and 18.')); return; }
-    if (playoffState.leagueId) run(() => loadPlayoff(playoffState.leagueId, wk));
-  }
-}
-
-async function loadPlayoff(leagueId, week) {
-  const league = getState().session.leagues.find((l) => l.league_id === leagueId);
-  const [rosters, users] = await Promise.all([getRosters(leagueId), getLeagueUsers(leagueId)]);
-  const usersById = {};
-  for (const u of users) usersById[u.user_id] = u;
-  const standings = computeStandings(rosters, usersById);
-  const spots = league?.settings?.playoff_teams || 6;
-  const regEnd = (league?.settings?.playoff_week_start || 15) - 1;
-  const gamesLeft = Math.max(0, regEnd - week);
-  const statuses = computePlayoffStatus(standings, spots, gamesLeft);
-
-  const out = div({});
-  out.appendChild(div({ class: 'card' },
-    sectionTitle(league?.name || 'Standings', `Through Week ${week} · top ${spots} make playoffs`),
-    gamesLeft === 0
-      ? div({ class: 'muted small' }, 'Regular season complete — standings are final.')
-      : div({ class: 'muted small' }, `${gamesLeft} week${gamesLeft > 1 ? 's' : ''} left. Clinch/elimination is win-based and does not model tiebreakers (PF, head-to-head).`),
-    div({ class: 'standings' }, ...standings.map((s, i) => {
-      return [
-        i === spots ? div({ class: 'playoff-line' }, `— playoff line (${spots}) —`) : null,
-        div({ class: 'standings-row' },
-          span({ class: 'sr-rank' }, `${i + 1}`),
-          span({ class: 'sr-owner' }, s.owner),
-          span({ class: 'sr-rec' }, `${s.wins}-${s.losses}${s.ties ? '-' + s.ties : ''}`),
-          span({ class: 'sr-pf muted small' }, s.pf.toFixed(1)),
-          statusTag(statuses[i]),
-        ),
-      ];
-    })),
-    div({ class: 'btn-row' }, btn({ class: 'btn', onclick: () => copyStandings(league, standings, spots, week) }, 'Copy playoff picture')),
-  ));
-  return out;
-}
-
-// Returns a status per standings row: 'clinched' | 'in' | 'out' | 'eliminated'.
-// Win-based bounds with games remaining (tiebreakers not modeled).
-function computePlayoffStatus(standings, spots, gamesLeft) {
-  const firstOutWins = standings[spots]?.wins ?? -1;      // best team currently outside
-  const lastInWins = standings[spots - 1]?.wins ?? Infinity; // worst team currently inside
-  return standings.map((s, i) => {
-    const inSpot = i < spots;
-    const maxWins = s.wins + gamesLeft;
-    if (inSpot) {
-      // Clinched if even the best team outside, winning out, can't pass you.
-      if (s.wins > firstOutWins + gamesLeft) return 'clinched';
-      return 'in';
-    }
-    // Outside the line: eliminated if you can't even reach the worst team
-    // currently holding a spot (who can only climb from here).
-    if (maxWins < lastInWins) return 'eliminated';
-    return 'out';
-  });
-}
-
-function statusTag(status) {
-  switch (status) {
-    case 'clinched': return span({ class: 'pill pill-good' }, 'Clinched');
-    case 'in': return span({ class: 'pill pill-good' }, 'In');
-    case 'eliminated': return span({ class: 'pill pill-bad' }, 'Eliminated');
-    default: return span({ class: 'pill pill-bad' }, 'Out');
-  }
-}
-
-function copyStandings(league, standings, spots, week) {
-  const lines = standings.map((s, i) =>
-    `${i + 1}. ${s.owner} (${s.wins}-${s.losses}${s.ties ? '-' + s.ties : ''}, ${s.pf.toFixed(1)} PF)${i + 1 === spots ? '  ⸺ playoff line ⸺' : ''}`);
-  const msg = `${league?.name || 'League'} — Playoff Picture through Week ${week}\nTop ${spots} make the playoffs.\n\n${lines.join('\n')}`;
-  copyToClipboard(msg);
 }
 
 // --- Draft Tools ---

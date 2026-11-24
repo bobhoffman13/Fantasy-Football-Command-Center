@@ -39,6 +39,7 @@ function defaultSettings() {
     weeklyDefaultId: '',  // weekly ranking set applied to every league by default
     weeklyAssignments: {}, // leagueId -> setId, or WEEKLY_NONE to opt one league out
     tiebreakers: {},      // leagueId -> 'h2h' | 'pa' (absent = points-for default)
+    divisionModes: {},    // leagueId -> 'in' | 'none' (absent = division winners take top seeds)
   };
 }
 

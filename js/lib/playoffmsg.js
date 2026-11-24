@@ -11,7 +11,7 @@ const pf = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 1, maximumF
 
 export function settledOf(a) {
   if (!a) return null;
-  if ((a.status === 'clinched' || a.status === 'clinched_bye') && !a.hedged) return 'in';
+  if (a.inClinched) return 'in';
   if (a.status === 'eliminated') return 'out';
   return null;
 }
@@ -49,7 +49,7 @@ export function teamNeeds(a, { you = false } = {}) {
 }
 
 // ranked: teams in seed order. analysis: Map<rosterId, analysis> | null. odds: sim result | null.
-export function buildLeagueUpdate({ leagueName, model, ranked, analysis, odds, tiebreaker }) {
+export function buildLeagueUpdate({ leagueName, model, ranked, analysis, odds, tiebreaker, divisionMode = 'top', leaders = null, unsupported = null }) {
   const { spots, byes, complete, remainingWeeks } = model;
   const week = remainingWeeks[0];
   const lines = [];
@@ -67,14 +67,17 @@ export function buildLeagueUpdate({ leagueName, model, ranked, analysis, odds, t
   ranked.forEach((t, i) => {
     if (i === spots) lines.push('— — playoff line — —');
     const p = pctFor(t);
-    lines.push(`${i + 1}. ${t.name}  ${rec(t)}  ${pf(t.pf)} PF${p ? ' · ' + p : ''}`);
+    const lead = leaders?.has(t.rosterId) ? ' 👑' : '';
+    lines.push(`${i + 1}. ${t.name}${lead}  ${rec(t)}  ${pf(t.pf)} PF${p ? ' · ' + p : ''}`);
   });
 
   if (analysis) {
     const of = (keys) => ranked.filter((t) => keys.includes(analysis.get(t.rosterId)?.status));
     const label = (t) => {
       const a = analysis.get(t.rosterId);
-      return `${t.name}${a.status === 'clinched_bye' ? ' (bye)' : ''}${a.hedged ? '*' : ''}`;
+      const byeTag = a.status === 'clinched_bye' ? ` (bye${a.hedged && a.inClinched ? '*' : ''})` : '';
+      const tag = byeTag || (a.divClinched ? ' (division)' : '');
+      return `${t.name}${tag}${a.hedged && !a.inClinched ? '*' : ''}`;
     };
     const inTeams = of(['clinched_bye', 'clinched']);
     const outTeams = of(['eliminated']);
@@ -110,8 +113,12 @@ export function buildLeagueUpdate({ leagueName, model, ranked, analysis, odds, t
       }
     }
     if ([...analysis.values()].some((a) => a.hedged)) lines.push('', '* if tiebreakers hold');
-  } else if (model.divisions) {
-    lines.push('', '(Division league — clinch scenarios not calculated.)');
+  } else if (unsupported) {
+    lines.push('', `(${unsupported})`);
+  }
+  if (leaders?.size) {
+    const how = divisionMode === 'top' ? 'division winners get the top seeds' : 'division winners are guaranteed a spot';
+    lines.push('', `👑 = division leader · ${how}`);
   }
 
   lines.push('');

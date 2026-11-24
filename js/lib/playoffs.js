@@ -216,15 +216,23 @@ function makeContext(model) {
   };
 }
 
-// Fix team x's results per remaining week (plan[wi] = 'W' | 'L', applied to its head-to-head
-// game and, in median leagues, its median game). Returns what's left to be decided.
-function applyPlan(ctx, x, plan) {
+// Fix team x's results per remaining week. plan[wi] is one of:
+//   'W' win head-to-head AND median · 'L' lose both
+//   'H' win head-to-head, lose median · 'M' lose head-to-head, win median
+// (In non-median leagues H == W and M == L.) `fixed` optionally pins other games:
+// Map<game, winnerIndex>. Returns what's left to be decided.
+const H2H_WIN = new Set(['W', 'H']);
+const MED_WIN = new Set(['W', 'M']);
+
+function applyPlan(ctx, x, plan, fixed = null) {
   const base = ctx.wp.slice();
   const free = [];
   for (const g of ctx.games) {
     if (g.i === x || g.j === x) {
       const opp = g.i === x ? g.j : g.i;
-      if (plan[g.wi] === 'W') base[x] += 2; else base[opp] += 2;
+      if (H2H_WIN.has(plan[g.wi])) base[x] += 2; else base[opp] += 2;
+    } else if (fixed && fixed.has(g)) {
+      base[fixed.get(g)] += 2;
     } else {
       free.push(g);
     }
@@ -232,7 +240,7 @@ function applyPlan(ctx, x, plan) {
   const medianSupply = [];
   if (ctx.median) {
     for (let wi = 0; wi < ctx.weeks; wi++) {
-      const xWin = plan[wi] === 'W';
+      const xWin = MED_WIN.has(plan[wi]);
       if (xWin) base[x] += 2;
       medianSupply.push(2 * Math.max(0, ctx.half - (xWin ? 1 : 0)));
     }
@@ -305,8 +313,8 @@ function canContain(ctx, st, x, allowed, target) {
 
 // Is there ANY outcome (given x's plan) where at least k other teams finish above x?
 // tiesHurt: a team level with x on win points counts as above x.
-export function canFinishOutside(ctx, x, plan, k, tiesHurt) {
-  const st = applyPlan(ctx, x, plan);
+export function canFinishOutside(ctx, x, plan, k, tiesHurt, fixed = null) {
+  const st = applyPlan(ctx, x, plan, fixed);
   const target = tiesHurt ? st.base[x] : st.base[x] + 1;
   const others = [];
   for (let t = 0; t < ctx.n; t++) if (t !== x) others.push(t);
@@ -326,8 +334,8 @@ export function canFinishOutside(ctx, x, plan, k, tiesHurt) {
 
 // Is there ANY outcome (given x's plan) where fewer than k other teams finish above x?
 // tiesFavor: a team level with x on win points counts as below x.
-export function canFinishInside(ctx, x, plan, k, tiesFavor) {
-  const st = applyPlan(ctx, x, plan);
+export function canFinishInside(ctx, x, plan, k, tiesFavor, fixed = null) {
+  const st = applyPlan(ctx, x, plan, fixed);
   const target = tiesFavor ? st.base[x] + 1 : st.base[x];
   const others = [];
   for (let t = 0; t < ctx.n; t++) if (t !== x) others.push(t);
@@ -458,10 +466,143 @@ export function analyzeRace(model, tiebreaker = DEFAULT_TIEBREAKER) {
       a.lastIn = lastIn.name;
     }
 
+    // This week's clinching / elimination scenarios for every team still alive.
+    if (a.status === 'control' || a.status === 'bubble' || a.status === 'hunt') {
+      a.scenarios = weekScenarios(model, ctx, x, spots);
+      approx ||= Boolean(a.scenarios?.approx);
+    }
+
     a.approx = approx;
     out.set(team.rosterId, a);
   }
   return out;
+}
+
+// --- this week's scenarios (NFL "clinches with: ..." style) ---------------------------
+
+const MAX_SCENARIO_GAMES = 8; // 2^8 outcomes; beyond that (17+ team leagues) skip
+
+const popcount = (n) => { let c = 0; for (; n; n &= n - 1) c++; return c; };
+
+// All prime implicants of boolean function f over V variables (f: Uint8Array of 2^V).
+// A term is { c: care-mask, val: required bits }. 3^V terms, so trivial for V <= 8.
+function primeImplicants(f, V) {
+  const size = 1 << V;
+  const full = size - 1;
+  const terms = [];
+  for (let c = 0; c < size; c++) {
+    const freeBits = full & ~c;
+    for (let val = c; ; val = (val - 1) & c) {
+      let ok = true;
+      for (let sub = freeBits; ; sub = (sub - 1) & freeBits) {
+        if (!f[val | sub]) { ok = false; break; }
+        if (sub === 0) break;
+      }
+      if (ok) terms.push({ c, val });
+      if (val === 0) break;
+    }
+  }
+  const keys = new Set(terms.map((t) => t.c * size + t.val));
+  return terms.filter(({ c, val }) => {
+    for (let b = c; b; b &= b - 1) {
+      const c2 = c & ~(b & -b);
+      if (keys.has(c2 * size + (val & c2))) return false; // a shorter term already works
+    }
+    return true;
+  });
+}
+
+// Greedy cover of `target` minterms, preferring the fewest conditions per scenario.
+function coverWith(primes, target, V) {
+  const size = 1 << V;
+  const uncovered = new Set();
+  for (let m = 0; m < size; m++) if (target[m]) uncovered.add(m);
+  const chosen = [];
+  while (uncovered.size) {
+    let best = null;
+    let bestKey = null;
+    for (const p of primes) {
+      let hits = 0;
+      for (const m of uncovered) if ((m & p.c) === p.val) hits++;
+      if (!hits) continue;
+      const key = [popcount(p.c), -hits];
+      if (!best || key[0] < bestKey[0] || (key[0] === bestKey[0] && key[1] < bestKey[1])) { best = p; bestKey = key; }
+    }
+    if (!best) break;
+    chosen.push(best);
+    for (const m of [...uncovered]) if ((m & best.c) === best.val) uncovered.delete(m);
+  }
+  return chosen;
+}
+
+// Try every combination of this week's results (the team's future games are assumed lost
+// for clinching and won for elimination, so a listed scenario holds no matter what comes
+// after). Returns { week, clinch: [{ lits, hedged }], elim: [{ lits }], approx }.
+function weekScenarios(model, ctx, x, k) {
+  const W = ctx.weeks;
+  const week0 = ctx.games.filter((g) => g.wi === 0);
+  if (!week0.length || week0.length > MAX_SCENARIO_GAMES) return null;
+  const V = week0.length;
+  const size = 1 << V;
+  const ownVar = week0.findIndex((g) => g.i === x || g.j === x);
+  const fc = new Uint8Array(size);
+  const ftb = new Uint8Array(size);
+  const fe = new Uint8Array(size);
+  let approx = false;
+
+  for (let m = 0; m < size; m++) {
+    const fixed = new Map();
+    let own = null; // true = x wins its game this week; null = bye
+    week0.forEach((g, v) => {
+      const winner = (m >> v) & 1 ? g.i : g.j;
+      if (v === ownVar) own = winner === x;
+      else fixed.set(g, winner);
+    });
+    // Clinch: worst case everywhere else (median game lost, future games lost).
+    const cPlan = planOf(W, (i) => (i === 0 && own ? 'H' : 'L'));
+    const r1 = canFinishOutside(ctx, x, cPlan, k, true, fixed);
+    approx ||= r1.approx;
+    fc[m] = r1.result ? 0 : 1;
+    if (fc[m]) ftb[m] = 1;
+    else {
+      const r2 = canFinishOutside(ctx, x, cPlan, k, false, fixed);
+      approx ||= r2.approx;
+      ftb[m] = r2.result ? 0 : 1;
+    }
+    // Elimination: best case everywhere else (median game won, future games won).
+    const ePlan = planOf(W, (i) => (i === 0 && own === false ? 'M' : 'W'));
+    const r3 = canFinishInside(ctx, x, ePlan, k, true, fixed);
+    approx ||= r3.approx;
+    fe[m] = r3.result ? 0 : 1;
+  }
+
+  const lit = (v, wantFirst) => {
+    const g = week0[v];
+    const winner = wantFirst ? g.i : g.j;
+    if (v === ownVar) return { self: true, result: winner === x ? 'win' : 'loss' };
+    const loser = winner === g.i ? g.j : g.i;
+    return { self: false, winner: model.teams[winner].name, loser: model.teams[loser].name };
+  };
+  const toScenario = (t, hedged) => {
+    const lits = [];
+    for (let v = 0; v < V; v++) if (t.c & (1 << v)) lits.push(lit(v, Boolean(t.val & (1 << v))));
+    lits.sort((p, q) => Number(q.self) - Number(p.self));
+    return { lits, hedged };
+  };
+
+  const clinch = coverWith(primeImplicants(fc, V), fc, V).map((t) => toScenario(t, false));
+  const tbOnly = new Uint8Array(size);
+  for (let m = 0; m < size; m++) tbOnly[m] = ftb[m] && !fc[m] ? 1 : 0;
+  clinch.push(...coverWith(primeImplicants(ftb, V), tbOnly, V).map((t) => toScenario(t, true)));
+  const elim = coverWith(primeImplicants(fe, V), fe, V).map((t) => toScenario(t, false));
+  return { week: model.remainingWeeks[0], clinch, elim, approx };
+}
+
+// "Win + Lamb Chops beats Chase Bank" — one scenario as text.
+export function scenarioText(sc) {
+  if (!sc.lits.length) return 'Any result';
+  const txt = sc.lits.map((l) => (l.self ? (l.result === 'win' ? 'Win' : 'Loss') : `${l.winner} beats ${l.loser}`)).join(' + ');
+  return txt + (sc.hedged ? ' (if tiebreakers hold)' : '');
 }
 
 // --- plain-English explanation -------------------------------------------------------

@@ -129,7 +129,10 @@ which is the one number comparable across positions.
     schedule** (small max-flow checks), and anything that depends on a tiebreaker is marked
     "if tiebreakers hold". Playoff and bye odds come from 10,000 simulated seasons. The tiebreaker
     (points for / head-to-head / points against) is set per league. Division leagues fall back to
-    standings only. One tap copies a whole-league **playoff update** for Sleeper chat.
+    standings only. A **What each team needs** breakdown lists, for every team still alive, the exact
+    combinations of this week's results that clinch or eliminate it (NFL "clinches with: Win + X beats Y"
+    style, checked against every possible outcome), plus the path if it can't clinch this week.
+    One tap copies a whole-league **playoff update**, including that breakdown, for Sleeper chat.
   - *Draft Tools* — date poll, confirmation, and reminder messages.
 - **Setup** — account, league config, ranking profiles, weekly rankings, risk tolerance, backup/restore, full data wipe.
 

@@ -9,7 +9,7 @@ import {
   buildSeasonModel, currentStandings, analyzeRace, explain, STATUS, TIEBREAKERS, DEFAULT_TIEBREAKER,
 } from '../lib/playoffs.js';
 import { simulatePlayoffs, formatPct, buildScoreModel, winProbability } from '../lib/playoffsim.js';
-import { buildLeagueUpdate, settledOf } from '../lib/playoffmsg.js';
+import { buildLeagueUpdate, settledOf, teamNeeds } from '../lib/playoffmsg.js';
 import { leagueSelector, asyncRegion, sectionTitle, emptyBlock } from './components.js';
 
 const SIM_ITERATIONS = 10000;
@@ -87,6 +87,10 @@ async function loadRace(leagueId, tiebreaker) {
   if (me && analysis) out.appendChild(myRaceCard(model, me, analysis.get(me.rosterId), odds, tiebreaker));
   out.appendChild(updateCard(league, model, ranked, analysis, odds, tiebreaker, notStarted));
   out.appendChild(standingsCard(league, model, ranked, analysis, odds, me, notStarted));
+  if (analysis && !model.complete) {
+    const needs = needsCard(model, ranked, analysis, odds, me);
+    if (needs) out.appendChild(needs);
+  }
   out.appendChild(assumptionsCard(model, analysis, odds, tiebreaker, notStarted));
   return out;
 }
@@ -111,10 +115,10 @@ function myRaceCard(model, me, a, odds, tiebreaker) {
   ));
   card.appendChild(div({ class: 'race-explain' }, explain(a, { you: true })));
 
+  const n = teamNeeds(a, { you: true });
+  if (n) card.appendChild(needsLists(n, { you: true }));
+
   const facts = [];
-  if (a.pivotal?.winIn) facts.push('🎯 Win this week and you’re in.');
-  else if (a.pivotal?.winInTB) facts.push('🎯 Win this week and you’re in — if tiebreakers hold.');
-  if (a.pivotal?.loseOut) facts.push('⚠️ Lose this week and you’re eliminated.');
   if (a.magic != null && a.status !== 'control') facts.push(`Magic number: ${a.magic} (your wins + ${a.magicRival} losses)`);
   if (a.tragic != null && (a.status === 'hunt' || a.status === 'bubble')) facts.push(`Tragic number: ${a.tragic} (your losses + ${a.tragicRival} wins)`);
   if (o?.byePct != null && a.status !== 'eliminated' && !a.final) facts.push(`First-round bye odds: ${formatPct(o.byePct, { settled: a.status === 'clinched_bye' && !a.hedged ? 'in' : null })}`);
@@ -135,6 +139,48 @@ function myRaceCard(model, me, a, odds, tiebreaker) {
   if (facts.length) card.appendChild(div({ class: 'race-facts' }, ...facts.map((f) => div({}, f))));
   if (a.hedged) card.appendChild(div({ class: 'muted small' }, `* Depends on a tiebreaker (assumed: ${TIEBREAKERS[tiebreaker].label.toLowerCase()}).`));
   return card;
+}
+
+function needsLists(n, { you = false } = {}) {
+  const box = div({ class: 'needs' });
+  if (n.clinch.length) {
+    box.appendChild(div({ class: 'needs-head tone-good' }, `${you ? 'You clinch' : 'Clinches'} this week with:`));
+    box.appendChild(el('ul', { class: 'needs-list' }, ...n.clinch.map((c) => el('li', {}, c))));
+  } else if (n.cantClinchNow) {
+    box.appendChild(div({ class: 'needs-head muted' }, 'Can’t clinch this week.'));
+  }
+  if (n.path && !you) box.appendChild(div({ class: 'needs-path' }, n.clinch.length ? `Otherwise: ${n.path.charAt(0).toLowerCase()}${n.path.slice(1)}` : n.path));
+  if (n.elim.length) {
+    box.appendChild(div({ class: 'needs-head tone-bad' }, `${you ? 'You’re eliminated' : 'Eliminated'} this week with:`));
+    box.appendChild(el('ul', { class: 'needs-list' }, ...n.elim.map((c) => el('li', {}, c))));
+  }
+  return box;
+}
+
+// Every team still alive, in seed order, with exactly what it takes this week.
+function needsCard(model, ranked, analysis, odds, me) {
+  const alive = ranked.filter((t) => ['control', 'bubble', 'hunt'].includes(analysis.get(t.rosterId)?.status));
+  if (!alive.length) return null;
+  const settled = (keys) => ranked.filter((t) => keys.includes(analysis.get(t.rosterId)?.status))
+    .map((t) => t.name + (analysis.get(t.rosterId).hedged ? '*' : ''));
+  const clinched = settled(['clinched', 'clinched_bye']);
+  const out = settled(['eliminated']);
+  return div({ class: 'card' },
+    sectionTitle('What each team needs', `Week ${model.remainingWeeks[0]} scenarios`),
+    clinched.length ? div({ class: 'muted small race-note' }, `✅ Clinched: ${clinched.join(', ')}`) : null,
+    out.length ? div({ class: 'muted small race-note' }, `❌ Eliminated: ${out.join(', ')}`) : null,
+    ...alive.map((t) => {
+      const a = analysis.get(t.rosterId);
+      const o = odds?.byRoster[t.rosterId];
+      return div({ class: 'needs-team' + (me && me.rosterId === t.rosterId ? ' me' : '') },
+        div({ class: 'needs-team-head' },
+          div({ class: 'sr-main' },
+            div({ class: 'sr-owner' }, t.name),
+            div({ class: 'muted small' }, `#${a.seed} · ${t.wins}-${t.losses}${t.ties ? '-' + t.ties : ''}${o ? ' · ' + formatPct(o.playoffPct) + ' odds' : ''}`)),
+          statusPill(a)),
+        needsLists(teamNeeds(a)));
+    }),
+    div({ class: 'muted small race-note' }, 'Scenarios cover every combination of this week’s results and hold no matter what happens after this week.'));
 }
 
 function updateCard(league, model, ranked, analysis, odds, tiebreaker, notStarted) {

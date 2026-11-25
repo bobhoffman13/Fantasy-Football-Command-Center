@@ -515,3 +515,9 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .swap-tag.start { background: var(--good); color: #06240f; }
 .swap-tag.sit { background: var(--low); color: var(--text); }
 .swap-why { padding-left: 50px; }
+
+/* Pickup upgrades (Lineup) */
+.swap-tag.add { background: rgba(58,122,254,.18); color: var(--primary); }
+.pickup-row .swap-in { flex-wrap: wrap; }
+.pickup-drop { margin-top: 2px; padding-left: 50px; }
+.pickup-note { margin: 6px 0; line-height: 1.4; }

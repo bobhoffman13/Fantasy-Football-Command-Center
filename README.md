@@ -118,7 +118,10 @@ which is the one number comparable across positions.
   - *Free Agents* — ranked, position filter, debounced search, FAAB/waiver indicator, alert toggle.
   - *Lineup* — optimal lineup with full flex eligibility (incl. SUPER_FLEX) + injury/bye risk modes.
     With weekly rankings loaded, it's ordered by this week's projections and leads with the
-    **changes to make** versus the lineup you currently have set in Sleeper.
+    **changes to make** versus the lineup you currently have set in Sleeper. **Pickup upgrades** lists
+    available players who would crack your starting lineup — the slot they would start in, the starter
+    they would bump (chain effects through FLEX included), the gain, and a drop candidate. Players in
+    IR or taxi slots are never started.
   - *Waiver Alerts* — per-league rank thresholds + export config for the companion script.
   - *Overview* — per-league record/standing/playoff status + cross-league activity feed (with names).
 - **Commish** — message templates (auto-filled tokens + unfilled-placeholder guard) and dues tracking.

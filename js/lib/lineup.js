@@ -104,3 +104,48 @@ export function pairLineupChanges(bringIn, sitDown) {
   }
   return pairs;
 }
+
+// --- pickup upgrades -----------------------------------------------------------------
+//
+// "Should I pick someone up and play them?" For each available player, re-run the
+// optimizer as if he were on the roster. If he'd start, he's an upgrade — and comparing
+// the two lineups names the starter who actually drops out, which isn't always the one
+// he directly replaces (a free-agent RB can push your RB2 into FLEX and bump the FLEX WR).
+//
+// roster / freeAgents: enriched players (see players.js). gainOf(fa, displaced) returns
+// how much better the pickup is (higher = better); `displaced` is null when he'd fill an
+// empty slot. Returns best-first: [{ player, slot, displaced, gain }].
+export function findPickupUpgrades(roster, freeAgents, rosterPositions, {
+  rankOf = seasonRankOf,
+  gainOf = (fa, out) => (out ? rankOf(out) - rankOf(fa) : Infinity),
+  limit = 8,
+} = {}) {
+  const base = optimizeLineup(roster, rosterPositions, { rankOf });
+  const baseStarters = base.starters.filter((s) => s.player).map((s) => s.player);
+  const results = [];
+  for (const fa of freeAgents) {
+    if (!fa.startable) continue;
+    // Cheap pre-check: he has to beat (or fill) at least one slot he's eligible for.
+    const couldStart = base.starters.some((s) => slotEligible(s.slot, fa.positions)
+      && (!s.player || rankOf(fa) < rankOf(s.player)));
+    if (!couldStart) continue;
+    const next = optimizeLineup([...roster, fa], rosterPositions, { rankOf });
+    const slotted = next.starters.find((s) => s.player?.playerId === fa.playerId);
+    if (!slotted) continue;
+    const nextIds = new Set(next.starters.filter((s) => s.player).map((s) => s.player.playerId));
+    const displaced = baseStarters.find((p) => !nextIds.has(p.playerId)) || null;
+    results.push({ player: fa, slot: slotted.slot, displaced, gain: gainOf(fa, displaced), lineup: next });
+  }
+  results.sort((a, b) => b.gain - a.gain || rankOf(a.player) - rankOf(b.player));
+  return results.slice(0, limit);
+}
+
+// Who to cut to make room: the lowest-ranked player left on the bench after the add.
+// `keepIds` (e.g. IR / taxi players, who don't use a bench spot) are never suggested.
+// Uses the SEASON ranking on purpose — in a dynasty league that's long-term value, which
+// is what should decide who gets cut, not one week's projection.
+export function dropCandidate(lineupAfterAdd, keepIds = new Set()) {
+  const pool = lineupAfterAdd.bench.filter((p) => !keepIds.has(p.playerId));
+  if (!pool.length) return null;
+  return pool.reduce((worst, p) => (seasonRankOf(p) > seasonRankOf(worst) ? p : worst));
+}

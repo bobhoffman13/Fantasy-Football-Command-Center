@@ -4,9 +4,9 @@
 // week's projections instead of the season-long rankings, and the page leads with the
 // changes you'd need to make versus the lineup you currently have set in Sleeper.
 import { div, span, mount } from '../lib/dom.js';
-import { loadLeagueContext } from '../lib/league.js';
-import { enrichRoster, weeklyRosterCoverage } from '../lib/players.js';
-import { optimizeLineup, weeklyRankOf, pairLineupChanges } from '../lib/lineup.js';
+import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
+import { enrichRoster, enrichPlayer, weeklyRosterCoverage } from '../lib/players.js';
+import { optimizeLineup, weeklyRankOf, pairLineupChanges, findPickupUpgrades, dropCandidate } from '../lib/lineup.js';
 import { getState, getActiveLeagueId } from '../store.js';
 import { RISK_MODES } from '../data/constants.js';
 import { daysSince } from '../lib/format.js';
@@ -34,10 +34,18 @@ async function load(leagueId) {
   if (!ctx.myRoster) return emptyBlock('No roster found for your account in this league.');
 
   const weekly = ctx.weekly;
+  // Sleeper won't let you start a player sitting in an IR or taxi slot, so neither can
+  // the optimizer (and neither counts against your bench when picking someone up).
+  const reserve = new Set(ctx.myRoster.reserve || []);
+  const taxi = new Set(ctx.myRoster.taxi || []);
   const players = enrichRoster(
     ctx.myRoster.players, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode,
     weekly?.byPlayerId || null,
-  );
+  ).map((p) => {
+    if (taxi.has(p.playerId)) return { ...p, startable: false, questionable: false, reason: 'Taxi squad' };
+    if (reserve.has(p.playerId)) return { ...p, startable: false, questionable: false, reason: 'IR slot' };
+    return p;
+  });
   const rosterPositions = ctx.league?.roster_positions || [];
   const { starters, bench, unfilled } = optimizeLineup(players, rosterPositions,
     weekly ? { rankOf: weeklyRankOf } : {});
@@ -64,6 +72,10 @@ async function load(leagueId) {
 
   const changes = lineupChanges(starters, players, ctx.myRoster.starters, !!weekly);
   if (changes) out.appendChild(changes);
+
+  if (weekly || ctx.ranking) {
+    out.appendChild(pickupCard(ctx, players, rosterPositions, weekly, new Set([...reserve, ...taxi])));
+  }
 
   out.appendChild(div({ class: 'card' },
     sectionTitle('Suggested starters'),
@@ -174,6 +186,99 @@ function lineupChanges(starters, players, currentStarters, isWeekly) {
   return div({ class: 'card' },
     sectionTitle('Changes to make', `${rows.length}`),
     div({ class: 'list' }, ...rows));
+}
+
+// --- available players who would start for you ---
+
+const PICKUP_LIMIT = 8;
+
+function pickupCard(ctx, roster, rosterPositions, weekly, keepIds) {
+  const isWeekly = !!weekly;
+  // Candidates: anyone unrostered that the active rankings know about.
+  const rostered = rosteredPlayerIds(ctx.rosters);
+  const ids = new Set([...ctx.rankingLookup.keys(), ...(weekly ? weekly.byPlayerId.keys() : [])]);
+  const freeAgents = [];
+  for (const id of ids) {
+    if (rostered.has(id)) continue;
+    const raw = ctx.players[id];
+    if (raw && raw.active === false) continue;
+    freeAgents.push(enrichPlayer(id, ctx.players, ctx.rankingLookup, ctx.nflState, ctx.riskMode, weekly?.byPlayerId || null));
+  }
+
+  const proj = (p) => p?.weekly?.proj ?? null;
+  const gainOf = isWeekly
+    ? (fa, out) => {
+        if (!out) return Infinity;
+        if (proj(fa) != null && proj(out) != null) return proj(fa) - proj(out);
+        if (proj(fa) != null) return proj(fa);
+        return ((out.rank ?? 1e5) - (fa.rank ?? 1e5)) / 1e6; // unprojected (K/DEF): order only
+      }
+    : undefined;
+  const upgrades = findPickupUpgrades(roster, freeAgents, rosterPositions,
+    { ...(isWeekly ? { rankOf: weeklyRankOf, gainOf } : {}), limit: PICKUP_LIMIT });
+
+  const activeCount = roster.filter((p) => !keepIds.has(p.playerId)).length;
+  const openSpots = Math.max(0, rosterPositions.length - activeCount);
+
+  const lset = ctx.league?.settings || {};
+  const faabTotal = Number(lset.waiver_budget) || 0;
+  const faabLeft = faabTotal - (Number(ctx.myRoster?.settings?.waiver_budget_used) || 0);
+  const sub = [
+    isWeekly ? 'by this week’s projections' : 'by your season rankings',
+    faabTotal > 0 ? `FAAB $${faabLeft} left` : null,
+    openSpots ? `${openSpots} open roster spot${openSpots === 1 ? '' : 's'}` : null,
+  ].filter(Boolean).join(' · ');
+
+  const card = div({ class: 'card' }, sectionTitle('Pickup upgrades', sub));
+  const leagueType = getState().settings.leagueTypes?.[ctx.league?.league_id];
+  if (!isWeekly && leagueType === 'dynasty') {
+    card.appendChild(div({ class: 'muted small pickup-note' },
+      'Heads up: these use your dynasty rankings (long-term value), not this week’s outlook. Upload weekly rankings in Setup for start/sit-accurate pickups.'));
+  }
+  if (!upgrades.length) {
+    card.appendChild(div({ class: 'diag diag-ok' }, '✓ No available player would crack your starting lineup.'));
+    return card;
+  }
+
+  card.appendChild(div({ class: 'list' }, ...upgrades.map(({ player, slot, displaced, gain, lineup }) => {
+    const why = !displaced
+      ? `Starts at ${slot} — fills an empty slot`
+      : `Starts at ${slot}, bumping ${displaced.name} from your lineup${pickupGain(player, displaced, isWeekly)}`;
+    const drop = openSpots > 0 ? null : dropCandidate(lineup, keepIds);
+    return div({ class: 'swap-row pickup-row' },
+      div({ class: 'swap-in' },
+        span({ class: 'swap-tag add' }, 'ADD'),
+        span({ class: 'pr-name' }, player.name),
+        span({ class: 'pr-meta muted small' },
+          [player.team, player.positions.join('/'), isWeekly ? matchupNote(player) : null].filter(Boolean).join(' · ')),
+        player.questionable ? span({ class: 'badge inj-q', title: 'Questionable' }, 'Q') : null,
+        isWeekly ? projBadge(proj(player)) : null,
+        isWeekly ? weeklyBadge(player.weekly) : rankBadge(player.rank)),
+      div({ class: 'muted small swap-why' }, why),
+      openSpots > 0
+        ? div({ class: 'muted small pickup-drop' }, 'Room on your roster — no drop needed.')
+        : drop
+          ? div({ class: 'muted small pickup-drop' }, 'Drop candidate: ', span({ class: 'pr-name' }, drop.name), ' ', rankBadge(drop.rank),
+              drop.positions?.length ? ` (${drop.positions.join('/')})` : '')
+          : null,
+    );
+  })));
+  card.appendChild(div({ class: 'muted small pickup-note' },
+    'Includes players on waivers (a claim may be needed). The drop candidate is your lowest-ranked bench player by season rankings — double-check before cutting anyone in dynasty.'));
+  return card;
+}
+
+function pickupGain(fa, out, isWeekly) {
+  if (isWeekly) {
+    const a = fa.weekly?.proj;
+    const b = out.weekly?.proj;
+    if (a != null && b != null) return ` (+${(a - b).toFixed(1)} projected pts)`;
+    if (a != null) return ` (${a.toFixed(1)} projected pts; ${out.name} has no projection)`;
+    return '';
+  }
+  if (fa.rank != null && out.rank != null) { const d = out.rank - fa.rank; return ` (ranked ${d} spot${d === 1 ? "" : "s"} higher)`; }
+  if (fa.rank != null) return ` (${out.name} is unranked)`;
+  return '';
 }
 
 function reasonLine(inP, outP, isWeekly) {

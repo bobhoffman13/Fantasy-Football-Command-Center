@@ -102,6 +102,10 @@ which is the one number comparable across positions.
   Weekly rankings**. That dropdown also has *None*, which keeps a league on season rankings.
 - The Lineup tab reports **how much of your roster** got a projection — not the file's overall
   match rate, which is meaningless when a weekly file lists a few hundred players league-wide.
+- **Defense (D/ST) files** work as-is: rows like `Chiefs`, `Kansas City Chiefs` or `Chiefs D/ST` are
+  matched to Sleeper's team defenses (which Sleeper names "Kansas City Chiefs"), even when the file
+  has no position column. Alternate abbreviations (JAC, WSH, LA) are understood. Add the DST file to
+  the same set as your flex/QB files with *Add / replace file*.
 - Kickers and defenses are normally absent from weekly files. They sort behind every projected
   player but still fill their own slots correctly.
 - Players with no projection fall behind projected ones, ordered among themselves by their

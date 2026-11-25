@@ -6,6 +6,8 @@
 // name and pick the best one using the CSV row's Position and Team columns, falling back
 // to fantasy-relevance. This keeps a star's ranking from landing on the wrong player.
 
+import { isDefenseRow, teamFromDefenseName, normalizeTeam } from './teams.js';
+
 const SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
 const FANTASY_POS = new Set(['QB', 'RB', 'WR', 'TE', 'K', 'DEF']);
 
@@ -72,6 +74,7 @@ export function buildPlayerIndex(playersMap) {
   const byLower = new Map();
   const byFull = new Map();
   const byInitialLast = new Map();
+  const defByTeam = new Map(); // "KC" -> Sleeper id of the Chiefs defense
   const add = (map, key, entry) => {
     if (!key) return;
     const list = map.get(key);
@@ -82,11 +85,12 @@ export function buildPlayerIndex(playersMap) {
     const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ');
     if (!name) continue;
     const entry = { id, meta: playerMeta(p) };
+    if (entry.meta.positions.includes('DEF')) defByTeam.set(normalizeTeam(p.team || id) || id, id);
     add(byLower, lowerKey(name), entry);
     add(byFull, fullKey(name), entry);
     add(byInitialLast, initialLastKey(name), entry);
   }
-  return { byLower, byFull, byInitialLast };
+  return { byLower, byFull, byInitialLast, defByTeam };
 }
 
 // Score a candidate against the CSV row's position/team. Position is the strongest
@@ -119,6 +123,14 @@ export function matchName(row, index) {
   if (!r.name) return null;
   const rowPos = normPos(r.pos);
   const rowTeam = (r.team || '').toUpperCase();
+
+  // Team defenses: Sleeper names them "Kansas City Chiefs" (id "KC") while ranking files
+  // say "Chiefs" or "Chiefs D/ST", so match them by team rather than by name.
+  if (isDefenseRow(r)) {
+    const team = teamFromDefenseName(r.name) || normalizeTeam(r.team);
+    const id = team && index.defByTeam?.get(team);
+    if (id) return id;
+  }
 
   // Tiers 1+2 merged: exact-lowercase and suffix-stripped candidates, deduped by id.
   // Merging means a suffix-stripped match (Kenneth Walker III) competes with an exact

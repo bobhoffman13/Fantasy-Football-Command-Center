@@ -15,6 +15,8 @@
 // Identity for de-duplication across files. Name plus position, normalized the
 // same way the Sleeper matcher normalizes names, so "Kenneth Walker III" in one
 // file and "Kenneth Walker" in another collapse to one player.
+import { inferDefense } from './csv.js';
+
 const SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
 
 function dedupeKey(row) {
@@ -37,7 +39,9 @@ export function mergeWeeklySet(set) {
   const byKey = new Map();
   for (const f of files) {
     for (const row of f.rows || []) {
-      byKey.set(dedupeKey(row), { ...row, fileId: f.id, fileLabel: f.label });
+      // Files stored before defenses were recognized have no position on those rows.
+      const r = inferDefense({ ...row });
+      byKey.set(dedupeKey(r), { ...r, fileId: f.id, fileLabel: f.label });
     }
   }
 

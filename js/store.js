@@ -11,6 +11,7 @@
 
 import { idbGet, idbSet, idbClearAll } from './lib/idb.js';
 import { mergeWeeklySet, weeklySetUpdatedAt } from './lib/weekly.js';
+import { inferDefense } from './lib/csv.js';
 import { SEASON_FALLBACK, SNOOZE_DAYS, SNOOZE_LIMIT, SNOOZE_FORGET_DAYS } from './data/constants.js';
 
 const SETTINGS_KEY = 'ffcc:settings';
@@ -342,11 +343,19 @@ export async function addWeeklySet({ name, file }) {
 
 // Add or replace a file within a set. A file with the same label replaces the
 // previous one, so re-uploading this week's flex file updates it in place.
+// A stored file's label as it would be computed today — files uploaded before defenses
+// were recognized were labelled by filename, and should still be replaced by next
+// week's "DEF" upload rather than linger as a stale second copy.
+function effectiveLabel(f) {
+  const positions = [...new Set((f.rows || []).map((r) => inferDefense({ ...r }).pos).filter(Boolean))].sort();
+  return positions.length ? positions.join('/') : f.label;
+}
+
 export async function addWeeklyFile(setId, { label, rows, week }) {
   const entry = { id: newId('f'), label, week: week ?? null, rows, uploadedAt: Date.now() };
   state.weeklySets = state.weeklySets.map((s) => {
     if (s.id !== setId) return s;
-    const kept = (s.files || []).filter((f) => f.label !== label);
+    const kept = (s.files || []).filter((f) => f.label !== label && effectiveLabel(f) !== label);
     return { ...s, files: [...kept, entry] };
   });
   await persistWeeklySets();

@@ -9,6 +9,8 @@
 // Rank column meaningless once files are merged, so the weekly parser ignores it
 // entirely and keeps projected points as the only cross-position sort key.
 
+import { isDefenseRow, teamFromDefenseName } from './teams.js';
+
 const COLUMN_ALIASES = {
   name: ['player', 'name', 'player_name', 'full_name', 'playername'],
   rank: ['overall_rank', 'rank', 'overall', 'ovr', 'rk'],
@@ -110,6 +112,16 @@ function readTable(text, aliases) {
   return { headers, records, colMap };
 }
 
+// Defense files often have no position column and list teams by nickname ("Chiefs").
+// Tag those rows DEF (and fill the team) so they label, rank and match as defenses.
+export function inferDefense(row) {
+  if (!row.pos && isDefenseRow(row)) {
+    row.pos = 'DEF';
+    if (!row.team) row.team = teamFromDefenseName(row.name);
+  }
+  return row;
+}
+
 export function parseRankingsCsv(text) {
   const table = readTable(text, COLUMN_ALIASES);
   if (table.error) return { rows: [], error: table.error };
@@ -142,6 +154,7 @@ export function parseRankingsCsv(text) {
     });
   }
 
+  for (const r of rows) inferDefense(r);
   // Ensure stable sort by rank.
   rows.sort((a, b) => a.rank - b.rank);
 
@@ -206,6 +219,7 @@ export function parseWeeklyRankingsCsv(text) {
   let best = 0;
   for (const [w, n] of weekCounts) if (n > best) { best = n; week = w; }
 
+  for (const r of rows) inferDefense(r);
   const positions = [...new Set(rows.map((r) => r.pos).filter(Boolean))].sort();
 
   return { rows, week, positions, error: null, columnsDetected: Object.keys(colMap) };

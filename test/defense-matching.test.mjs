@@ -94,3 +94,15 @@ test('next week’s DEF upload replaces a file stored under its old filename lab
   assert.deepEqual(files.map((f) => f.label).sort(), ['DEF', 'QB']);
   assert.equal(files.find((f) => f.label === 'DEF').week, 13);
 });
+
+test('defenses match even if the player database lacks or reshapes their entries', () => {
+  const parsed = parseWeeklyRankingsCsv(csv);
+  // No defenses in the map at all: Sleeper's roster id for a defense is the abbreviation.
+  const humansOnly = { '4046': sleeperPlayers['4046'] };
+  const a = buildRankingLookup(parsed.rows, humansOnly);
+  assert.equal(a.diagnostic.matched, 26);
+  assert.equal(a.byPlayerId.get('KC').proj, 9.3);
+  // Defense entries with no name fields at all.
+  const nameless = { KC: { player_id: 'KC', position: 'DEF', fantasy_positions: ['DEF'], team: 'KC' } };
+  assert.equal(buildRankingLookup(parsed.rows, nameless).byPlayerId.get('KC').name, 'Chiefs');
+});

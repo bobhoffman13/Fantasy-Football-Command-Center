@@ -82,10 +82,12 @@ export function buildPlayerIndex(playersMap) {
     else map.set(key, [entry]);
   };
   for (const [id, p] of Object.entries(playersMap || {})) {
+    const meta = playerMeta(p);
+    // Index defenses BEFORE the name check: they're matched by team, not by name.
+    if (meta.positions.includes('DEF')) defByTeam.set(normalizeTeam(p.team || id) || id, id);
     const name = p.full_name || [p.first_name, p.last_name].filter(Boolean).join(' ');
     if (!name) continue;
-    const entry = { id, meta: playerMeta(p) };
-    if (entry.meta.positions.includes('DEF')) defByTeam.set(normalizeTeam(p.team || id) || id, id);
+    const entry = { id, meta };
     add(byLower, lowerKey(name), entry);
     add(byFull, fullKey(name), entry);
     add(byInitialLast, initialLastKey(name), entry);
@@ -126,10 +128,11 @@ export function matchName(row, index) {
 
   // Team defenses: Sleeper names them "Kansas City Chiefs" (id "KC") while ranking files
   // say "Chiefs" or "Chiefs D/ST", so match them by team rather than by name.
+  // Sleeper's roster id for a team defense IS the team abbreviation ("KC"), so even if
+  // the player database lacks (or reshapes) the entry, the abbreviation is the answer.
   if (isDefenseRow(r)) {
     const team = teamFromDefenseName(r.name) || normalizeTeam(r.team);
-    const id = team && index.defByTeam?.get(team);
-    if (id) return id;
+    if (team) return index.defByTeam?.get(team) || team;
   }
 
   // Tiers 1+2 merged: exact-lowercase and suffix-stripped candidates, deduped by id.

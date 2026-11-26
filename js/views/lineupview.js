@@ -3,11 +3,12 @@
 // When a weekly ranking set applies to this league, the optimizer is driven by that
 // week's projections instead of the season-long rankings, and the page leads with the
 // changes you'd need to make versus the lineup you currently have set in Sleeper.
-import { div, span, mount } from '../lib/dom.js';
+import { div, span, el, mount, toast } from '../lib/dom.js';
 import { loadLeagueContext, rosteredPlayerIds } from '../lib/league.js';
-import { enrichRoster, enrichPlayer, weeklyRosterCoverage } from '../lib/players.js';
+import { enrichRoster, enrichPlayer, weeklyRosterCoverage, clearLookupCache } from '../lib/players.js';
 import { optimizeLineup, weeklyRankOf, pairLineupChanges, findPickupUpgrades, dropCandidate } from '../lib/lineup.js';
-import { getState, getActiveLeagueId } from '../store.js';
+import { getState, getActiveLeagueId, getWeeklySets, addWeeklyFile } from '../store.js';
+import { inferDefense } from '../lib/csv.js';
 import { RISK_MODES } from '../data/constants.js';
 import { daysSince } from '../lib/format.js';
 import {
@@ -23,10 +24,11 @@ export function render(container) {
   const run = asyncRegion(body);
 
   local.leagueId = getActiveLeagueId();
+  local.reload = () => { if (local.leagueId) run(() => load(local.leagueId)); };
 
   root.append(body);
   mount(container, root);
-  if (local.leagueId) run(() => load(local.leagueId));
+  local.reload();
 }
 
 async function load(leagueId) {
@@ -58,6 +60,8 @@ async function load(leagueId) {
     const staleness = weekStaleness(weekly, ctx.nflState);
     if (staleness) out.appendChild(staleness);
     out.appendChild(coverageBlock(weekly, ctx));
+    const defHelp = defenseHelp(weekly, players);
+    if (defHelp) out.appendChild(defHelp);
   } else {
     out.appendChild(matchDiagnostic(ctx.diagnostic, { compact: true }));
   }
@@ -126,6 +130,44 @@ function weekStaleness(weekly, nflState) {
   return div({ class: 'diag diag-warn' },
     `⚠ These rankings are for week ${weekly.week}, but it's week ${current}. `
     + 'Upload this week’s files in Setup before trusting these suggestions.');
+}
+
+// Your defense has no projection: say exactly why, and fix the common case in one tap —
+// the DST file was uploaded as its own weekly set instead of into the set this league uses.
+function defenseHelp(weekly, players) {
+  const unprojected = players.filter((p) => p.positions.includes('DEF') && !p.weekly);
+  if (!unprojected.length) return null;
+  const setHasDef = weekly.rows.some((r) => r.pos === 'DEF');
+  if (setHasDef) {
+    return div({ class: 'diag diag-warn' },
+      `⚠ “${weekly.name}” has defense rankings, but none for ${unprojected.map((p) => p.name).join(', ')}. `
+      + 'Check that team is in your DST file.');
+  }
+  // Is there a DEF file sitting in another set?
+  let source = null;
+  for (const set of getWeeklySets()) {
+    if (set.id === weekly.set.id) continue;
+    for (const f of set.files || []) {
+      if (!(f.rows || []).some((r) => inferDefense({ ...r }).pos === 'DEF')) continue;
+      if (!source || (f.uploadedAt || 0) > (source.file.uploadedAt || 0)) source = { set, file: f };
+    }
+  }
+  if (!source) {
+    return div({ class: 'diag diag-warn' },
+      `⚠ No defense projections: this league uses the weekly set “${weekly.name}”, which has no DST file. `
+      + `Add it in Setup → Weekly rankings → “${weekly.name}” → Add / replace file.`);
+  }
+  const fix = el('button', { type: 'button', class: 'btn btn-sm btn-primary',
+    onclick: async () => {
+      fix.disabled = true;
+      await addWeeklyFile(weekly.set.id, { label: 'DEF', rows: source.file.rows, week: source.file.week });
+      clearLookupCache();
+      toast(`Added defenses to “${weekly.name}”`, 'success');
+      local.reload?.();
+    } }, `Add them to “${weekly.name}”`);
+  return div({ class: 'diag diag-warn' },
+    div({}, `⚠ Your defense projections are in the weekly set “${source.set.name}”, but this league uses “${weekly.name}”.`),
+    div({ class: 'btn-row' }, fix));
 }
 
 // Coverage of YOUR roster, which is the number that matters for a lineup.
